@@ -21,3 +21,19 @@ go.work
 *.swp
 *.swo
 *~
+
+# Node
+node_modules/
+package-lock.json
+
+# Build output
+dist/
+*.dmg
+*.zip
+ShareDrop.app/
+
+# macOS
+.DS_Store
+
+# Logs
+*.log

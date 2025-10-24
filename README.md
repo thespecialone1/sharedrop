@@ -6,9 +6,11 @@
 
 ## Download
 
-**[Download ShareDrop for Mac](https://github.com/YOURUSERNAME/sharedrop/releases)** 
+### Latest Release: v1.0.0
 
-Download `ShareDrop-Mac.zip` from the releases page.
+**[📥 Download ShareDrop for Mac (Apple Silicon)](https://github.com/thespecialone1/sharedrop/releases/download/v1.0.0/ShareDrop-1.0.0-arm64.dmg)**
+
+[View all releases](https://github.com/thespecialone1/sharedrop/releases) | [Changelog](CHANGELOG.md)
 
 ## Features
 

@@ -1,0 +1,40 @@
+{
+  "name": "file-share-app",
+  "version": "1.0.0",
+  "description": "**Share local folders instantly with password-protected links. No uploads, no cloud storage - files stay on your machine.**",
+  "main": "electron-main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder",
+    "build:mac": "electron-builder --mac"
+  },
+  "build": {
+    "appId": "com.sharedrop.app",
+    "productName": "ShareDrop",
+    "files": [
+      "electron-main.js",
+      "preload.js",
+      "electron-ui.html"
+    ],
+    "extraResources": [
+      {
+        "from": "file-share-app",
+        "to": "file-share-app"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.utilities",
+      "target": "dmg",
+      "icon": "icon.png"
+    }
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "canvas": "^3.2.0",
+    "electron": "^38.4.0",
+    "electron-builder": "^26.0.12"
+  }
+}
