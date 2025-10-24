@@ -227,6 +227,9 @@
     
     <div class="container">
         <div id="statusBar" class="status hidden"></div>
+        <div id="cloudflareNotice" class="status hidden" style="background: rgba(234, 179, 8, 0.05); border-color: #eab308; color: #eab308;">
+            ⚠️ For internet sharing, install Cloudflare Tunnel: <code style="font-family: 'SF Mono', monospace; background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 3px;">brew install cloudflare/cloudflare/cloudflared</code>
+        </div>
         
         <div class="card">
             <div class="card-title">CREATE SHARE</div>
@@ -273,7 +276,15 @@
             const statusBar = document.getElementById('statusBar');
             statusBar.className = 'status active';
             statusBar.innerHTML = '<span class="status-dot"></span> Internet sharing active';
+            document.getElementById('cloudflareNotice').classList.add('hidden');
         });
+        
+        // Show cloudflared notice after 3 seconds if tunnel not ready
+        setTimeout(() => {
+            if (!tunnelUrl) {
+                document.getElementById('cloudflareNotice').classList.remove('hidden');
+            }
+        }, 3000);
         
         window.electron.onError((message) => {
             alert(message);

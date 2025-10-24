@@ -16,19 +16,29 @@
 
 - 🔒 Password-protected shares
 - 📊 Real-time download monitoring  
-- 🌐 Internet access via Cloudflare Tunnel
-- 💻 Native Mac app
+- 🌐 Internet access via Cloudflare Tunnel (optional)
+- 💻 Native Mac app - **no installation required**
 - 🚀 Files stay on your machine - no uploads
+- ✅ **Zero dependencies** for local network sharing
 
 ## Quick Start
 
-1. Download and unzip `ShareDrop-Mac.zip`
-2. Double-click `ShareDrop.app`
-3. A notification shows your internet URL (if cloudflared is installed)
-4. Browser opens to http://localhost:8080
-5. Create a share by entering a folder path
-6. **For internet sharing**: Replace `localhost:8080` in the link with your tunnel URL from the notification
-7. Send link + password to your client
+### Basic Setup (Local Network Only)
+1. Download the DMG from releases
+2. Open the DMG and drag ShareDrop to Applications
+3. Double-click ShareDrop.app
+4. **That's it!** No installation, no dependencies needed
+
+### Internet Sharing (Optional)
+To share files with anyone on the internet:
+
+```bash
+brew install cloudflare/cloudflare/cloudflared
+```
+
+Restart ShareDrop - it will automatically create public URLs.
+
+**Note**: Internet sharing is optional. ShareDrop works perfectly on your local network without any additional setup.
 
 ## Getting Folder Paths
 
