@@ -22,9 +22,11 @@ Download `ShareDrop-Mac.zip` from the releases page.
 
 1. Download and unzip `ShareDrop-Mac.zip`
 2. Double-click `ShareDrop.app`
-3. Browser opens to http://localhost:8080
-4. Enter a folder path and create share
-5. Send link + password to your client
+3. A notification shows your internet URL (if cloudflared is installed)
+4. Browser opens to http://localhost:8080
+5. Create a share by entering a folder path
+6. **For internet sharing**: Replace `localhost:8080` in the link with your tunnel URL from the notification
+7. Send link + password to your client
 
 ## Getting Folder Paths
 
