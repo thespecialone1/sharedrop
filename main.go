@@ -12,6 +12,7 @@ import (
 	"image/jpeg"
 	_ "image/gif"
 	_ "image/png"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -2422,6 +2423,184 @@ const browseTemplate = `<!DOCTYPE html>
 </body>
 </html>`
 
+// handleSessionExport exports full session data as JSON
+func (app *App) handleSessionExport(w http.ResponseWriter, r *http.Request) {
+	shareID := strings.TrimPrefix(r.URL.Path, "/api/sessions/export/")
+	
+	if shareID == "" {
+		http.Error(w, "share_id required", http.StatusBadRequest)
+		return
+	}
+	
+	app.mu.RLock()
+	share, exists := app.shares[shareID]
+	if !exists {
+		app.mu.RUnlock()
+		http.Error(w, "Share not found", http.StatusNotFound)
+		return
+	}
+	
+	// Gather all data for this share
+	var selections []PhotoSelection
+	for _, sel := range app.selections {
+		if sel.ShareID == shareID {
+			selections = append(selections, sel)
+		}
+	}
+	
+	var comments []Comment
+	for _, comment := range app.comments {
+		if comment.ShareID == shareID {
+			comments = append(comments, comment)
+		}
+	}
+	
+	session := app.sessions[shareID]
+	app.mu.RUnlock()
+	
+	data := map[string]interface{}{
+		"share":      share,
+		"selections": selections,
+		"comments":   comments,
+		"session":    session,
+		"exported_at": time.Now(),
+	}
+	
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="session-%s.json"`, shareID))
+	json.NewEncoder(w).Encode(data)
+}
+
+// handleSessionImport imports session data from CSV or JSON
+func (app *App) handleSessionImport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	shareID := strings.TrimPrefix(r.URL.Path, "/api/sessions/import/")
+	if shareID == "" {
+		http.Error(w, "share_id required", http.StatusBadRequest)
+		return
+	}
+	
+	// Check if share exists
+	app.mu.RLock()
+	_, exists := app.shares[shareID]
+	app.mu.RUnlock()
+	if !exists {
+		http.Error(w, "Share not found", http.StatusNotFound)
+		return
+	}
+	
+	err := r.ParseMultipartForm(10 << 20) // 10 MB max
+	if err != nil {
+		http.Error(w, "Failed to parse form", http.StatusBadRequest)
+		return
+	}
+	
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "No file uploaded", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+	
+	// Read file content
+	var data []byte
+	data, err = io.ReadAll(file)
+	if err != nil {
+		http.Error(w, "Failed to read file", http.StatusInternalServerError)
+		return
+	}
+	
+	// Try to parse as JSON first
+	var sessionData struct {
+		Selections []PhotoSelection `json:"selections"`
+		Comments   []Comment        `json:"comments"`
+	}
+	
+	if err := json.Unmarshal(data, &sessionData); err == nil {
+		// Import JSON data
+		app.mu.Lock()
+		for _, sel := range sessionData.Selections {
+			sel.ID = generateRandomString(8)
+			sel.ShareID = shareID
+			sel.Timestamp = time.Now()
+			app.selections = append(app.selections, sel)
+			app.SaveSelection(&sel)
+		}
+		for _, comment := range sessionData.Comments {
+			comment.ID = generateRandomString(8)
+			comment.ShareID = shareID
+			comment.CreatedAt = time.Now()
+			app.comments = append(app.comments, comment)
+			app.SaveComment(&comment)
+		}
+		app.mu.Unlock()
+		
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":    true,
+			"selections": len(sessionData.Selections),
+			"comments":   len(sessionData.Comments),
+		})
+		return
+	}
+	
+	// Try CSV format
+	// CSV format: Filename,User,Favorite,Tags,Timestamp
+	lines := strings.Split(string(data), "\n")
+	if len(lines) < 2 {
+		http.Error(w, "Invalid CSV format", http.StatusBadRequest)
+		return
+	}
+	
+	app.mu.Lock()
+	imported := 0
+	for i, line := range lines[1:] { // Skip header
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		
+		parts := strings.Split(line, ",")
+		if len(parts) < 4 {
+			continue
+		}
+		
+		sel := PhotoSelection{
+			ID:         generateRandomString(8),
+			SessionID:  shareID,
+			ShareID:    shareID,
+			FileName:   parts[0],
+			UserName:   parts[1],
+			IsFavorite: parts[2] == "Yes" || parts[2] == "true",
+			Tags:       []string{},
+			Timestamp:  time.Now(),
+		}
+		
+		if len(parts) > 3 && parts[3] != "" {
+			tagsStr := strings.Trim(parts[3], "\"")
+			sel.Tags = strings.Split(tagsStr, ";")
+		}
+		
+		app.selections = append(app.selections, sel)
+		app.SaveSelection(&sel)
+		imported++
+		
+		if i >= 1000 { // Safety limit
+			break
+		}
+	}
+	app.mu.Unlock()
+	
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":  true,
+		"imported": imported,
+	})
+}
+
 func main() {
 	app := NewApp()
 
@@ -2435,6 +2614,8 @@ func main() {
 	http.HandleFunc("/api/selections/get", app.handleGetSelections)
 	http.HandleFunc("/api/selections/counts", app.handleGetSelectionCounts)
 	http.HandleFunc("/api/selections/export", app.handleExportSelections)
+	http.HandleFunc("/api/sessions/export/", app.handleSessionExport)
+	http.HandleFunc("/api/sessions/import/", app.handleSessionImport)
 	http.HandleFunc("/dashboard/", app.handleDashboard)
 	http.HandleFunc("/share/", app.handleSharePage)
 	http.HandleFunc("/download/", app.handleDownload)

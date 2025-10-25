@@ -40,7 +40,14 @@ function startServer() {
     console.log('Starting server from:', serverPath);
     console.log('File exists:', fs.existsSync(serverPath));
     
-    serverProcess = spawn(serverPath);
+    // Set working directory to app data directory for database
+    const appDataDir = app.getPath('userData');
+    console.log('Working directory:', appDataDir);
+    
+    serverProcess = spawn(serverPath, [], {
+        cwd: appDataDir,
+        env: process.env
+    });
     
     serverProcess.stdout.on('data', (data) => {
         console.log(`Server: ${data}`);
