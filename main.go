@@ -24,11 +24,12 @@ import (
 )
 
 type Share struct {
-	ID          string    `json:"id"`
-	FolderPath  string    `json:"folder_path"`
-	Password    string    `json:"password"`
-	CreatedAt   time.Time `json:"created_at"`
-	AccessCount int       `json:"access_count"`
+	ID          string     `json:"id"`
+	FolderPath  string     `json:"folder_path"`
+	Password    string     `json:"password"`
+	CreatedAt   time.Time  `json:"created_at"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
+	AccessCount int        `json:"access_count"`
 }
 
 type DownloadLog struct {
@@ -99,7 +100,8 @@ func (app *App) handleCreateShare(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		FolderPath string `json:"folder_path"`
+		FolderPath    string `json:"folder_path"`
+		ExpiresInMins int    `json:"expires_in_mins"` // 0 = never expires
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -111,6 +113,12 @@ func (app *App) handleCreateShare(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+
+	// Set expiration if requested
+	if req.ExpiresInMins > 0 {
+		expiresAt := time.Now().Add(time.Duration(req.ExpiresInMins) * time.Minute)
+		share.ExpiresAt = &expiresAt
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -126,6 +134,13 @@ func (app *App) handleSharePage(w http.ResponseWriter, r *http.Request) {
 
 	if !exists {
 		http.Error(w, "Share not found", http.StatusNotFound)
+		return
+	}
+
+	// Check if share has expired
+	if share.ExpiresAt != nil && time.Now().After(*share.ExpiresAt) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, "<h1>Share Expired</h1><p>This share link has expired and is no longer available.</p>")
 		return
 	}
 

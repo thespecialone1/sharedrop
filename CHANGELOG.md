@@ -2,6 +2,22 @@
 
 All notable changes to ShareDrop will be documented in this file.
 
+## [1.2.0] - 2025-10-25
+
+### ✨ New Features
+- **Link Expiration**: Set expiration time for shares (hours/days or never expires)
+- **Automatic Cleanup**: Expired links show "Share Expired" message
+- **Expiration API**: Backend accepts `expires_in_mins` parameter
+
+### 📝 Planned for Phase 2
+- Search & filtering for files
+- Thumbnail caching on sender's machine
+- Comments/annotations for collaborative review
+- Active shares list in Electron app
+- Improved cloudflared detection UI
+
+---
+
 ## [1.1.0] - 2025-10-25
 
 ### 🐛 Bug Fixes
