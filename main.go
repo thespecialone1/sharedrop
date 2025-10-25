@@ -1384,15 +1384,15 @@ const dashboardTemplate = `<!DOCTYPE html>
                 const result = await response.json();
                 
                 if (result.success) {
-                    status.textContent = `✓ Imported ${result.imported || result.selections} items successfully!`;
+                    status.textContent = 'Imported ' + (result.imported || result.selections) + ' items successfully!';
                     status.style.color = '#10b981';
                     setTimeout(() => window.location.reload(), 2000);
                 } else {
-                    status.textContent = '✗ Import failed';
+                    status.textContent = 'Import failed';
                     status.style.color = '#ef4444';
                 }
             } catch (error) {
-                status.textContent = '✗ Error: ' + error.message;
+                status.textContent = 'Error: ' + error.message;
                 status.style.color = '#ef4444';
             }
         });
