@@ -227,8 +227,19 @@
     
     <div class="container">
         <div id="statusBar" class="status hidden"></div>
-        <div id="cloudflareNotice" class="status hidden" style="background: rgba(234, 179, 8, 0.05); border-color: #eab308; color: #eab308;">
-            ⚠️ For internet sharing, install Cloudflare Tunnel: <code style="font-family: 'SF Mono', monospace; background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 3px;">brew install cloudflare/cloudflare/cloudflared</code>
+        <div id="cloudflareNotice" class="card hidden" style="background: rgba(234, 179, 8, 0.05); border-color: #eab308;">
+            <div style="display: flex; align-items: start; gap: 12px;">
+                <div style="font-size: 24px;">⚠️</div>
+                <div style="flex: 1;">
+                    <div style="font-weight: 600; color: #eab308; margin-bottom: 8px;">Cloudflare Tunnel Not Found</div>
+                    <div style="color: #d4d4d4; font-size: 13px; margin-bottom: 12px;">To share files over the internet, install Cloudflare Tunnel by running this command in your terminal:</div>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <div id="installCommand" style="flex: 1; padding: 10px 12px; background: #000; border: 1px solid #1a1a1a; border-radius: 6px; font-family: 'SF Mono', monospace; font-size: 12px; color: #10b981;">brew install cloudflare/cloudflare/cloudflared</div>
+                        <button class="copy-btn" onclick="copyCommand(event)" style="background: #eab308; color: #000; border-color: #eab308;">Copy Command</button>
+                    </div>
+                    <div style="color: #a1a1a1; font-size: 12px; margin-top: 12px;">After installation, restart ShareDrop to enable internet sharing.</div>
+                </div>
+            </div>
         </div>
         
         <div class="card">
@@ -264,27 +275,34 @@
     <script>
         let selectedFolder = null;
         let tunnelUrl = null;
+        let tunnelCheckTimeout = null;
         
         window.electron.onStatus((message) => {
             const statusBar = document.getElementById('statusBar');
             statusBar.textContent = message;
             statusBar.classList.remove('hidden');
+            
+            // If status is about tunnel starting, schedule the warning
+            if (message.includes('tunnel')) {
+                tunnelCheckTimeout = setTimeout(() => {
+                    if (!tunnelUrl) {
+                        document.getElementById('cloudflareNotice').classList.remove('hidden');
+                    }
+                }, 8000); // 8 seconds to give tunnel time to connect
+            }
         });
         
         window.electron.onTunnelReady((url) => {
             tunnelUrl = url;
+            // Clear the timeout so warning doesn't show
+            if (tunnelCheckTimeout) {
+                clearTimeout(tunnelCheckTimeout);
+            }
             const statusBar = document.getElementById('statusBar');
             statusBar.className = 'status active';
             statusBar.innerHTML = '<span class="status-dot"></span> Internet sharing active';
             document.getElementById('cloudflareNotice').classList.add('hidden');
         });
-        
-        // Show cloudflared notice after 3 seconds if tunnel not ready
-        setTimeout(() => {
-            if (!tunnelUrl) {
-                document.getElementById('cloudflareNotice').classList.remove('hidden');
-            }
-        }, 3000);
         
         window.electron.onError((message) => {
             alert(message);
@@ -334,6 +352,22 @@
                 setTimeout(() => {
                     btn.textContent = original;
                     btn.classList.remove('copied');
+                }, 2000);
+            }).catch(err => {
+                console.error('Copy failed:', err);
+            });
+        }
+        
+        function copyCommand(event) {
+            const text = document.getElementById('installCommand').textContent;
+            const btn = event.target;
+            navigator.clipboard.writeText(text).then(() => {
+                const original = btn.textContent;
+                btn.textContent = 'Copied!';
+                btn.style.background = '#10b981';
+                setTimeout(() => {
+                    btn.textContent = original;
+                    btn.style.background = '#eab308';
                 }, 2000);
             }).catch(err => {
                 console.error('Copy failed:', err);
