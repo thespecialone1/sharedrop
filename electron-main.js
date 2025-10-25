@@ -8,6 +8,7 @@ let mainWindow;
 let serverProcess;
 let tunnelProcess;
 let tunnelUrl = null;
+let serverReady = false;
 
 function createWindow() {
     mainWindow = new BrowserWindow({
@@ -58,9 +59,33 @@ function startServer() {
     
     serverProcess.on('close', (code) => {
         console.log('Server process closed with code:', code);
+        serverReady = false;
     });
     
-    setTimeout(checkCloudflared, 2000);
+    // Wait for server to be ready
+    waitForServer();
+}
+
+function waitForServer() {
+    const checkServer = () => {
+        const req = http.get('http://localhost:8080/', (res) => {
+            console.log('✓ Server is ready!');
+            serverReady = true;
+            if (mainWindow) {
+                mainWindow.webContents.send('server-ready');
+            }
+            setTimeout(checkCloudflared, 1000);
+        });
+        
+        req.on('error', (error) => {
+            console.log('Waiting for server... (attempt)');
+            setTimeout(checkServer, 500);
+        });
+        
+        req.end();
+    };
+    
+    setTimeout(checkServer, 500);
 }
 
 function checkCloudflared() {
@@ -158,6 +183,11 @@ ipcMain.handle('select-folder', async () => {
 });
 
 ipcMain.handle('create-share', async (event, folderPath) => {
+    // Check if server is ready
+    if (!serverReady) {
+        throw new Error('Server is not ready yet. Please wait a moment and try again.');
+    }
+    
     return new Promise((resolve, reject) => {
         const data = JSON.stringify({ folder_path: folderPath });
         

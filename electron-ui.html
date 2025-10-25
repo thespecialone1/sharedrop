@@ -250,7 +250,7 @@
                 <button onclick="selectFolder()" class="secondary">Browse</button>
             </div>
             
-            <button onclick="createShare()" id="createBtn" class="primary-btn">Create Share</button>
+            <button onclick="createShare()" id="createBtn" class="primary-btn" disabled>Waiting for server...</button>
             
             <div id="shareResult" class="share-result hidden">
                 <div class="share-row">
@@ -306,6 +306,13 @@
         
         window.electron.onError((message) => {
             alert(message);
+        });
+        
+        window.electron.onServerReady(() => {
+            const statusBar = document.getElementById('statusBar');
+            statusBar.className = 'status active';
+            statusBar.innerHTML = '<span class="status-dot"></span> Server ready';
+            document.getElementById('createBtn').disabled = false;
         });
         
         async function selectFolder() {
