@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Thumbnail Test</title>
+</head>
+<body>
+    <h1>Thumbnail Test</h1>
+    <p>Enter share ID and filename to test thumbnail:</p>
+    
+    <input type="text" id="shareID" placeholder="Share ID" value="">
+    <input type="text" id="filename" placeholder="Filename" value="IMG_3765.HEIC">
+    <button onclick="loadThumb()">Load Thumbnail</button>
+    <br><br>
+    
+    <div id="result"></div>
+    <img id="thumb" style="max-width: 300px; border: 2px solid red;">
+    
+    <script>
+        function loadThumb() {
+            const shareID = document.getElementById('shareID').value;
+            const filename = document.getElementById('filename').value;
+            const url = '/thumbnail/' + shareID + '/' + encodeURIComponent(filename);
+            
+            document.getElementById('result').innerHTML = 'Loading from: ' + url;
+            
+            const img = document.getElementById('thumb');
+            img.onerror = () => {
+                document.getElementById('result').innerHTML = 'ERROR loading: ' + url;
+            };
+            img.onload = () => {
+                document.getElementById('result').innerHTML = 'SUCCESS! Loaded from: ' + url;
+            };
+            img.src = url;
+        }
+    </script>
+</body>
+</html>

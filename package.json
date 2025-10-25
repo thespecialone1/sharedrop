@@ -6,7 +6,9 @@
   "scripts": {
     "start": "electron .",
     "build": "electron-builder",
-    "build:mac": "electron-builder --mac"
+    "build:mac": "electron-builder --mac",
+    "build:win": "electron-builder --win",
+    "build:linux": "electron-builder --linux"
   },
   "build": {
     "appId": "com.sharedrop.app",
@@ -26,6 +28,24 @@
       "category": "public.app-category.utilities",
       "target": "dmg",
       "icon": "icon.icns"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "icon.png"
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Utility",
+      "icon": "icon.png"
     }
   },
   "keywords": [],

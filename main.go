@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -288,19 +289,48 @@ func (app *App) handleThumbnail(w http.ResponseWriter, r *http.Request) {
 func (app *App) generateImageThumbnail(w http.ResponseWriter, filePath string) {
 	ext := strings.ToLower(filepath.Ext(filePath))
 	
-	// HEIC/HEIF and RAW files (DNG, CR2, NEF, ARW) need special handling on macOS using sips
+	// HEIC/HEIF and RAW files need special handling
 	if ext == ".heic" || ext == ".heif" || ext == ".dng" || ext == ".cr2" || ext == ".nef" || ext == ".arw" {
-		cmd := exec.Command("sips", "-s", "format", "jpeg", "-Z", "300", filePath, "--out", "/dev/stdout")
-		output, err := cmd.Output()
-		if err != nil {
-			log.Printf("Failed to convert %s image: %v", ext, err)
-			http.Error(w, fmt.Sprintf("Failed to convert %s image", ext), http.StatusInternalServerError)
+		if runtime.GOOS == "darwin" {
+			// macOS: use sips command
+			cmd := exec.Command("sips", "-s", "format", "jpeg", "-Z", "300", filePath, "--out", "/dev/stdout")
+			output, err := cmd.Output()
+			if err != nil {
+				log.Printf("Failed to convert %s image: %v", ext, err)
+				http.Error(w, fmt.Sprintf("Failed to convert %s image", ext), http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "image/jpeg")
+			w.Header().Set("Cache-Control", "public, max-age=3600")
+			w.Write(output)
+			return
+		} else if runtime.GOOS == "windows" {
+			// Windows: try ImageMagick/magick command
+			cmd := exec.Command("magick", "convert", filePath, "-resize", "300x300", "jpeg:-")
+			output, err := cmd.Output()
+			if err != nil {
+				log.Printf("Failed to convert %s image (ImageMagick not installed?): %v", ext, err)
+				http.Error(w, fmt.Sprintf("%s format not supported on Windows without ImageMagick", ext), http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "image/jpeg")
+			w.Header().Set("Cache-Control", "public, max-age=3600")
+			w.Write(output)
+			return
+		} else {
+			// Linux: try ImageMagick
+			cmd := exec.Command("convert", filePath, "-resize", "300x300", "jpeg:-")
+			output, err := cmd.Output()
+			if err != nil {
+				log.Printf("Failed to convert %s image (ImageMagick not installed?): %v", ext, err)
+				http.Error(w, fmt.Sprintf("%s format not supported without ImageMagick", ext), http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "image/jpeg")
+			w.Header().Set("Cache-Control", "public, max-age=3600")
+			w.Write(output)
 			return
 		}
-		w.Header().Set("Content-Type", "image/jpeg")
-		w.Header().Set("Cache-Control", "public, max-age=3600")
-		w.Write(output)
-		return
 	}
 
 	file, err := os.Open(filePath)
@@ -367,7 +397,15 @@ func (app *App) handlePreview(w http.ResponseWriter, r *http.Request) {
 	
 	// Convert HEIC/HEIF and RAW to JPEG for preview
 	if ext == ".heic" || ext == ".heif" || ext == ".dng" || ext == ".cr2" || ext == ".nef" || ext == ".arw" {
-		cmd := exec.Command("sips", "-s", "format", "jpeg", filePath, "--out", "/dev/stdout")
+		var cmd *exec.Cmd
+		if runtime.GOOS == "darwin" {
+			cmd = exec.Command("sips", "-s", "format", "jpeg", filePath, "--out", "/dev/stdout")
+		} else if runtime.GOOS == "windows" {
+			cmd = exec.Command("magick", "convert", filePath, "jpeg:-")
+		} else {
+			cmd = exec.Command("convert", filePath, "jpeg:-")
+		}
+		
 		output, err := cmd.Output()
 		if err != nil {
 			log.Printf("Failed to convert %s image for preview: %v", ext, err)
@@ -393,9 +431,28 @@ func (app *App) handlePreview(w http.ResponseWriter, r *http.Request) {
 }
 
 func (app *App) handleCheckCloudflared(w http.ResponseWriter, r *http.Request) {
-	paths := []string{
-		"/opt/homebrew/bin/cloudflared",
-		"/usr/local/bin/cloudflared",
+	var paths []string
+	var installCommand string
+	
+	if runtime.GOOS == "windows" {
+		paths = []string{
+			`C:\Program Files\cloudflared\cloudflared.exe`,
+			`C:\Program Files (x86)\cloudflared\cloudflared.exe`,
+		}
+		installCommand = "Download from https://github.com/cloudflare/cloudflared/releases and run: cloudflared.exe service install"
+	} else if runtime.GOOS == "darwin" {
+		paths = []string{
+			"/opt/homebrew/bin/cloudflared",
+			"/usr/local/bin/cloudflared",
+		}
+		installCommand = "brew install cloudflare/cloudflare/cloudflared"
+	} else {
+		// Linux
+		paths = []string{
+			"/usr/local/bin/cloudflared",
+			"/usr/bin/cloudflared",
+		}
+		installCommand = "wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O /usr/local/bin/cloudflared && chmod +x /usr/local/bin/cloudflared"
 	}
 
 	installed := false
@@ -416,7 +473,8 @@ func (app *App) handleCheckCloudflared(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"installed":       installed,
-		"install_command": "brew install cloudflare/cloudflare/cloudflared",
+		"install_command": installCommand,
+		"platform":        runtime.GOOS,
 	})
 }
 
