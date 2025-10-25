@@ -1132,11 +1132,12 @@ func (app *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	app.mu.RUnlock()
 
-	// Group by user
+	// Group by user and get unique users
 	userStats := make(map[string]struct {
 		Favorites int
 		Tagged    int
 	})
+	activeUsers := make(map[string]bool)
 
 	for _, sel := range selections {
 		stats := userStats[sel.UserName]
@@ -1147,6 +1148,13 @@ func (app *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			stats.Tagged++
 		}
 		userStats[sel.UserName] = stats
+		activeUsers[sel.UserName] = true
+	}
+	
+	// Convert to slice
+	var activeUsersList []string
+	for user := range activeUsers {
+		activeUsersList = append(activeUsersList, user)
 	}
 
 	// Count files
@@ -1168,6 +1176,7 @@ func (app *App) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		"TotalFiles":  totalFiles,
 		"Selections":  selections,
 		"UserStats":   userStats,
+		"ActiveUsers": activeUsersList,
 		"AccessCount": share.AccessCount,
 		"CreatedAt":   share.CreatedAt.Format("2006-01-02 15:04"),
 	})
@@ -1322,7 +1331,72 @@ const dashboardTemplate = `<!DOCTYPE html>
             <a href="/share/{{.ShareID}}" class="btn">View Gallery</a>
             <a href="/api/selections/export?share_id={{.ShareID}}&format=csv" class="btn">Export CSV</a>
             <a href="/api/selections/export?share_id={{.ShareID}}&format=json" class="btn">Export JSON</a>
+            <a href="/api/sessions/export/{{.ShareID}}" class="btn">Full Session Export</a>
         </div>
+        
+        <div class="section">
+            <h2>Active Users ({{len .ActiveUsers}})</h2>
+            {{if .ActiveUsers}}
+            <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                {{range .ActiveUsers}}
+                <span class="tag" style="background: #10b981; color: #fff; padding: 6px 12px; font-size: 13px;">{{.}}</span>
+                {{end}}
+            </div>
+            {{else}}
+            <p style="color: #888;">No users have reviewed photos yet.</p>
+            {{end}}
+        </div>
+        
+        <div class="section">
+            <h2>Import Selections</h2>
+            <p style="color: #888; margin-bottom: 16px;">Upload a CSV or JSON file to import selections</p>
+            <form id="importForm" enctype="multipart/form-data">
+                <input type="file" id="importFile" accept=".csv,.json" style="margin-bottom: 16px; color: #fafafa;" />
+                <button type="submit" class="btn">Import File</button>
+                <span id="importStatus" style="margin-left: 16px; color: #888;"></span>
+            </form>
+        </div>
+        
+        <script>
+        document.getElementById('importForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const fileInput = document.getElementById('importFile');
+            const status = document.getElementById('importStatus');
+            
+            if (!fileInput.files[0]) {
+                status.textContent = 'Please select a file';
+                status.style.color = '#ef4444';
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            
+            status.textContent = 'Importing...';
+            status.style.color = '#ffa500';
+            
+            try {
+                const response = await fetch('/api/sessions/import/{{.ShareID}}', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    status.textContent = `✓ Imported ${result.imported || result.selections} items successfully!`;
+                    status.style.color = '#10b981';
+                    setTimeout(() => window.location.reload(), 2000);
+                } else {
+                    status.textContent = '✗ Import failed';
+                    status.style.color = '#ef4444';
+                }
+            } catch (error) {
+                status.textContent = '✗ Error: ' + error.message;
+                status.style.color = '#ef4444';
+            }
+        });
+        </script>
 
         <div class="stats">
             <div class="stat-card">
@@ -2386,6 +2460,13 @@ const browseTemplate = `<!DOCTYPE html>
                 })
                 .catch(err => console.error('Failed to load comment count:', err));
         }
+
+        // Real-time polling for count updates
+        setInterval(() => {
+            if (userName && document.visibilityState === 'visible') {
+                loadCounts();
+            }
+        }, 5000); // Poll every 5 seconds
 
         // Load thumbnails dynamically with proper URL encoding
         document.addEventListener('DOMContentLoaded', () => {
