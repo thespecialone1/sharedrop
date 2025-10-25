@@ -2,6 +2,122 @@
 
 All notable changes to ShareDrop will be documented in this file.
 
+## [3.2.0] - 2025-10-25
+
+### ✨ Phase 3.2A - Quick Wins (Collaboration Features)
+- **Session Naming**: Name sessions (e.g., "Smith Wedding 2025") for easy identification
+- **Username Validation**: No duplicate usernames - enforced at server level
+- **Comment Count Badges**: "Comments (3)" shows exactly which photos have discussion
+- **Favorite Count Display**: "★ 3 favorites" shows how many people favorited each photo
+- **Hover Tooltips**: See who favorited ("Favorited by: Sarah, John, Mom")
+- **Active Users Tracking**: Server tracks who's currently reviewing
+
+### 🔗 New API Endpoints
+- `POST /api/sessions/validate-name` - Validate username uniqueness
+- `GET /api/comments/count` - Get comment count per file
+- `GET /api/selections/counts` - Get favorite counts for all files
+
+### 💡 Real-Time Awareness
+- Everyone sees how many people favorited each photo
+- Comment counts update after posting
+- Favorite counts update after favoriting
+- Users can't take each other's names
+
+### 📊 Dashboard Improvements
+- Session name displayed prominently in orange
+- Clearer session identification
+
+---
+
+## [3.1.0] - 2025-10-25
+
+### ✨ UX Improvements & Photographer Dashboard
+- **Photographer Dashboard**: New `/dashboard/{shareID}` route showing all selections
+- **Grid Responsiveness**: Fixed image cropping (object-fit: contain)
+- **Tag Visibility**: Color-coded tags (Album=Blue, Print=Green, Social=Purple, Skip=Red)
+- **Save Indicator**: "Saving..."/"All changes saved" status in selection bar
+- **Tag Clarity**: Renamed "Pass" to "Skip" for better understanding
+- **Persistence Confirmed**: localStorage ensures selections survive browser close
+
+### 📋 Photographer Dashboard Features
+- **Overview Stats**: Total photos, reviewers, selections at a glance
+- **User Summary**: Per-user favorites and tag counts
+- **Selections Table**: Complete table with user, file, favorite, tags, timestamp
+- **Quick Export**: Export CSV/JSON directly from dashboard
+- **Gallery Link**: Jump to client view from dashboard
+- **No Password**: Easy access for photographers
+
+### 📖 Documentation
+- **PHOTOGRAPHER_GUIDE.md**: Complete workflow guide
+- Answers all UX questions (persistence, CSV usage, etc.)
+- Email template for sending to clients
+- Excel analysis tips and formulas
+- FAQ section covering common scenarios
+- Troubleshooting guide
+
+---
+
+## [3.0.0] - 2025-10-25
+
+### ✨ Phase 3.1 - Wedding Photography Review Features (MVP)
+- **User Identification**: Welcome modal prompts for user name on first visit
+- **Favorite Star Button**: Click star (☆/★) to mark photos as favorites
+- **Quick Tags**: Tag photos with Album, Print, Social, or Pass
+- **Selection Counter**: Sticky bar shows favorite count when selections exist
+- **CSV/JSON Export**: Export all selections with user, favorites, tags, and timestamps
+- **Local Storage Sync**: Selections persist in browser and sync with server
+- **Multi-User Support**: Multiple reviewers can independently select favorites
+- **Real-time Updates**: Star and tag changes instantly saved to server
+
+### 🎨 UI Improvements - Emoji Removal
+- Removed all emojis from UI (💦, 🔍, 💬, 📄)
+- Replaced with clean text labels and Unicode symbols (☆/★)
+- Professional, distraction-free interface
+- Better accessibility and consistency
+
+### 🛠️ Technical - Phase 3.1
+- `PhotoSelection` struct with favorites, tags, user, and timestamp
+- `ShareSession` struct for multi-user session management
+- Selection API: `POST /api/selections`, `GET /api/selections/get`, `GET /api/selections/export`
+- localStorage + sessionStorage for offline-first experience
+- Tag pills with active state styling
+- Export formats: CSV (Excel-compatible) and JSON
+
+### 📊 Wedding Photography Workflow
+1. Photographer shares folder → generates link
+2. Client opens link → enters password → enters name
+3. Client browses photos → clicks stars to favorite → adds tags
+4. Selection counter updates in real-time
+5. Client exports selections as CSV/JSON
+6. Multiple clients (bride, groom, mom) can review independently
+
+---
+
+## [2.0.0] - 2025-10-25
+
+### ✨ Phase 2 Features
+- **Real-time Search**: Search box with live filtering of files by name
+- **File Type Filters**: Filter by file type (All, Images, Videos, Documents)
+- **Sorting Options**: Sort files by name (A-Z, Z-A) or size (smallest/largest)
+- **Thumbnail Caching**: Generated thumbnails are now cached in memory for instant serving
+- **Comments System**: Add comments to any file with author name and timestamp
+- **Comments API**: `/api/comments` (POST) and `/api/comments/get` (GET) endpoints
+
+### 🎨 UI Improvements
+- Search box with 🔍 icon in controls bar
+- Dropdown filters for file type and sorting
+- Comment button (💬) on each file in both list and grid views
+- Comments modal with threaded display and timestamp formatting
+
+### 🛠️ Technical
+- `ThumbnailCache` struct with thread-safe read/write locks
+- `Comment` struct for storing file comments in memory
+- Enhanced file items with `data-size`, `data-is-image`, `data-is-video` attributes
+- JavaScript filtering and sorting functions working on both list and grid views
+- XSS protection via HTML escaping in comment rendering
+
+---
+
 ## [1.2.0] - 2025-10-25
 
 ### ✨ New Features

@@ -5,10 +5,11 @@
   "main": "electron-main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder",
-    "build:mac": "electron-builder --mac",
-    "build:win": "electron-builder --win",
-    "build:linux": "electron-builder --linux"
+    "prebuild": "node build-prebuild.js",
+    "build": "npm run prebuild && electron-builder",
+    "build:mac": "npm run prebuild && electron-builder --mac",
+    "build:win": "npm run prebuild && electron-builder --win",
+    "build:linux": "npm run prebuild && electron-builder --linux"
   },
   "build": {
     "appId": "com.sharedrop.app",
@@ -19,10 +20,7 @@
       "electron-ui.html"
     ],
     "extraResources": [
-      {
-        "from": "file-share-app",
-        "to": "file-share-app"
-      }
+      "file-share-app"
     ],
     "mac": {
       "category": "public.app-category.utilities",

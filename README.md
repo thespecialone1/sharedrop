@@ -2,6 +2,20 @@
 
 **Share local folders instantly with password-protected links. No uploads, no cloud storage - files stay on your machine.**
 
+## 🚀 Quick Start
+
+### For Users
+1. Download `ShareDrop.dmg`
+2. Drag to Applications
+3. Launch and start sharing!
+
+### For Developers
+```bash
+npm install && npm run build:mac
+```
+
+See [QUICK_START.md](QUICK_START.md) for details.
+
 *Built with AI assistance from Claude (Anthropic) via Warp Agent Mode.*
 
 ## Download

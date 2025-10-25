@@ -26,12 +26,16 @@ function createWindow() {
 }
 
 function startServer() {
-    // When packaged, __dirname points to app.asar, need to use resources path
+    // Determine binary name based on platform
+    const binaryName = process.platform === 'win32' ? 'file-share-app.exe' : 'file-share-app';
+    
+    // When packaged, binary is in resources folder
     const serverPath = app.isPackaged 
-        ? path.join(process.resourcesPath, 'file-share-app')
-        : path.join(__dirname, 'file-share-app');
+        ? path.join(process.resourcesPath, binaryName)
+        : path.join(__dirname, binaryName);
     
     console.log('App packaged:', app.isPackaged);
+    console.log('Platform:', process.platform);
     console.log('Starting server from:', serverPath);
     console.log('File exists:', fs.existsSync(serverPath));
     
@@ -64,11 +68,29 @@ function checkCloudflared() {
     const paths = [
         '/opt/homebrew/bin/cloudflared',
         '/usr/local/bin/cloudflared',
+        path.join(process.env.HOME || '', '.local', 'bin', 'cloudflared'),
         'cloudflared'
     ];
     
-    // Try to start tunnel with first available path
-    startTunnel(paths[0]);
+    // Find first available cloudflared
+    let availablePath = null;
+    for (const p of paths) {
+        if (fs.existsSync(p)) {
+            availablePath = p;
+            break;
+        }
+    }
+    
+    if (availablePath) {
+        console.log('Found cloudflared at:', availablePath);
+        startTunnel(availablePath);
+    } else {
+        console.log('⚠️  Cloudflared not found. Tunnel will not be available.');
+        console.log('Install with: brew install cloudflare/cloudflare/cloudflared');
+        if (mainWindow) {
+            mainWindow.webContents.send('status', 'Cloudflared not found - local access only');
+        }
+    }
 }
 
 function installCloudflared() {
