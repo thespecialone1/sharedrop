@@ -1,6 +1,6 @@
 {
   "name": "file-share-app",
-  "version": "1.1.0",
+  "version": "1.2.1",
   "description": "**Share local folders instantly with password-protected links. No uploads, no cloud storage - files stay on your machine.**",
   "main": "electron-main.js",
   "scripts": {
@@ -27,7 +27,9 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["universal"]
+          "arch": [
+            "universal"
+          ]
         }
       ],
       "icon": "icon.icns",
@@ -37,11 +39,15 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "icon.png"
