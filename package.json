@@ -30,7 +30,8 @@
           "arch": ["universal"]
         }
       ],
-      "icon": "icon.icns"
+      "icon": "icon.icns",
+      "x64ArchFiles": "Contents/Resources/file-share-app"
     },
     "win": {
       "target": [
