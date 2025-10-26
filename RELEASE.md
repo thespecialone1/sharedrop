@@ -79,17 +79,35 @@ gh release create v1.0.0 \
 
 5. **Update README.md** download links to point to new version
 
-## Building for Intel Macs
+## Universal Binary (Intel + Apple Silicon)
+
+The build process now automatically creates a **universal binary** that works on both Intel and Apple Silicon Macs.
 
 ```bash
-# Build Go binary for Intel
-GOOS=darwin GOARCH=amd64 go build -o file-share-app main.go
+# Build universal binary (automatically done by npm run build:mac)
+npm run prebuild  # Creates universal Go binary
+npm run build:mac # Packages into universal DMG
 
-# Build Electron app for Intel
-npm run build:mac -- --x64
-
-# The DMG will be at: dist/ShareDrop-1.0.0.dmg
+# Verify it's universal
+lipo -info file-share-app
+# Output: Architectures in the fat file: file-share-app are: x86_64 arm64
 ```
+
+The resulting DMG will work on **both Intel and Apple Silicon** Macs.
+
+## Automated Release Script
+
+Use the automated release script to build and publish all platforms at once:
+
+```bash
+./create-release.sh v1.2.0 "Added universal binary support"
+```
+
+This will:
+- Build universal macOS binary (Intel + Apple Silicon)
+- Build Windows x64 installer and portable
+- Build Linux AppImage
+- Create GitHub release with all artifacts
 
 ## Testing Before Release
 

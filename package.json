@@ -24,7 +24,12 @@
     ],
     "mac": {
       "category": "public.app-category.utilities",
-      "target": "dmg",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["universal"]
+        }
+      ],
       "icon": "icon.icns"
     },
     "win": {
