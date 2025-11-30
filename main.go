@@ -1320,9 +1320,20 @@ func (app *App) handleValidateName(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Chat message handlers
-func (app *App) handleSendChatMessage(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
+// handleChatMessage handles posting new chat messages
+func (app *App) handleChatMessage(w http.ResponseWriter, r *http.Request) {
+	// Add CORS headers for Cloudflare tunnel support
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	
+	// Handle preflight OPTIONS request
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	
+	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -1377,6 +1388,7 @@ func (app *App) handleSendChatMessage(w http.ResponseWriter, r *http.Request) {
 		Timestamp: time.Now(),
 	}
 
+	// Respond with created message
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(chatMsg)
 }
