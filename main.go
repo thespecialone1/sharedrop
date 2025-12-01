@@ -27,28 +27,24 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/nfnt/resize"
 	"github.com/gorilla/websocket"
-	
-	"file-share-app/internal/models"
-	"file-share-app/internal/storage"
-	ws "file-share-app/internal/websocket"
 )
 
-// WebSocket message types (use from websocket package)
+// WebSocket message types
 const (
-	MSG_CHAT_MESSAGE   = ws.MSG_CHAT_MESSAGE
-	MSG_CHAT_DELETE    = ws.MSG_CHAT_DELETE
-	MSG_FAVORITE       = ws.MSG_FAVORITE
-	MSG_TAG_ADD        = ws.MSG_TAG_ADD
-	MSG_TAG_REMOVE     = ws.MSG_TAG_REMOVE
-	MSG_SELECTION      = ws.MSG_SELECTION
-	MSG_USER_JOINED    = ws.MSG_USER_JOINED
-	MSG_USER_LEFT      = ws.MSG_USER_LEFT
-	MSG_USER_VIEWING   = ws.MSG_USER_VIEWING
-	MSG_TYPING_START   = ws.MSG_TYPING_START
-	MSG_TYPING_STOP    = ws.MSG_TYPING_STOP
-	MSG_VOTE           = ws.MSG_VOTE
-	MSG_SYNC_REQUEST   = ws.MSG_SYNC_REQUEST
-	MSG_SYNC_RESPONSE  = ws.MSG_SYNC_RESPONSE
+	MSG_CHAT_MESSAGE   = "chat.message"
+	MSG_CHAT_DELETE    = "chat.delete"
+	MSG_FAVORITE       = "favorite.toggle"
+	MSG_TAG_ADD        = "tag.add"
+	MSG_TAG_REMOVE     = "tag.remove"
+	MSG_SELECTION      = "selection.change"
+	MSG_USER_JOINED    = "user.joined"
+	MSG_USER_LEFT      = "user.left"
+	MSG_USER_VIEWING   = "user.viewing"
+	MSG_TYPING_START   = "typing.start"
+	MSG_TYPING_STOP    = "typing.stop"
+	MSG_VOTE           = "vote.cast"
+	MSG_SYNC_REQUEST   = "sync.request"
+	MSG_SYNC_RESPONSE  = "sync.response"
 )
 
 // WebSocket upgrader
@@ -60,16 +56,37 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-// Type aliases for backward compatibility with existing code
-type Share = models.Share
-type ChatMessage = models.ChatMessage
-type PhotoSelection = models.PhotoSelection
-type ShareSession = models.ShareSession
-type Client = ws.Client
-type Hub = ws.Hub
-type Message = ws.Message
+// Client represents a WebSocket connection
+type Client struct {
+	hub      *Hub
+	conn     *websocket.Conn
+	send     chan []byte
+	shareID  string
+	userName string
+	viewing  string // Current photo being viewed
+}
 
-// Vote represents a voting choice (kept locally for now)
+// Hub maintains active clients and broadcasts messages
+type Hub struct {
+	clients    map[string]map[*Client]bool // shareID -> clients
+	broadcast  chan *Message
+	register   chan *Client
+	unregister chan *Client
+	mu         sync.RWMutex
+}
+
+// Message represents a WebSocket message
+type Message struct {
+	Type      string          `json:"type"`
+	ShareID   string          `json:"shareId"`
+	User      string          `json:"user"`
+	PhotoID   string          `json:"photoId,omitempty"`
+	Action    string          `json:"action,omitempty"`
+	Data      json.RawMessage `json:"data,omitempty"`
+	Timestamp time.Time       `json:"timestamp"`
+}
+
+// Vote represents a voting choice
 type Vote struct {
 	ID        string    `json:"id"`
 	ShareID   string    `json:"share_id"`
@@ -79,6 +96,16 @@ type Vote struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
+type Share struct {
+	ID          string     `json:"id"`
+	SessionName string     `json:"session_name"`
+	FolderPath  string     `json:"folder_path"`
+	Password    string     `json:"password"`
+	CreatedAt   time.Time  `json:"created_at"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
+	AccessCount int        `json:"access_count"`
+}
+
 type DownloadLog struct {
 	ShareID    string    `json:"share_id"`
 	FileName   string    `json:"file_name"`
@@ -86,63 +113,148 @@ type DownloadLog struct {
 	DownloadAt time.Time `json:"download_at"`
 }
 
+type ChatMessage struct {
+	ID            string    `json:"id"`
+	ShareID       string    `json:"share_id"`
+	UserName      string    `json:"user_name"`
+	Message       string    `json:"message"`
+	PhotoRef      string    `json:"photo_ref,omitempty"` // Optional photo reference
+	CreatedAt     time.Time `json:"created_at"`
+}
+
 type ThumbnailCache struct {
 	cache map[string][]byte
 	mu    sync.RWMutex
 }
 
+type PhotoSelection struct {
+	ID         string    `json:"id"`
+	SessionID  string    `json:"session_id"`
+	ShareID    string    `json:"share_id"`
+	FileName   string    `json:"file_name"`
+	UserName   string    `json:"user_name"`
+	IsFavorite bool      `json:"is_favorite"`
+	Tags       []string  `json:"tags"`
+	Timestamp  time.Time `json:"timestamp"`
+}
+
+type ShareSession struct {
+	ShareID        string    `json:"share_id"`
+	SessionName    string    `json:"session_name"`
+	AllowMultiUser bool      `json:"allow_multi_user"`
+	ActiveUsers    []string  `json:"active_users"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
 type App struct {
 	shares         map[string]*Share
 	downloadLogs   []DownloadLog
+	chatMessages   []ChatMessage
 	thumbnailCache *ThumbnailCache
+	sessions       map[string]*ShareSession
+	selections     []PhotoSelection
+	votes          []Vote
 	hub            *Hub
-	db             *storage.DB  // Using new storage layer with performance improvements
+	db             *sql.DB
 	mu             sync.RWMutex
 }
 
 func NewApp() *App {
-	// Create WebSocket hub using new package
-	hub := ws.NewHub()
-	
+	hub := NewHub()
 	app := &App{
 		shares:         make(map[string]*Share),
 		downloadLogs:   make([]DownloadLog, 0),
+		chatMessages:   make([]ChatMessage, 0),
 		thumbnailCache: &ThumbnailCache{cache: make(map[string][]byte)},
+		sessions:       make(map[string]*ShareSession),
+		selections:     make([]PhotoSelection, 0),
+		votes:          make([]Vote, 0),
 		hub:            hub,
 	}
 	
 	// Start WebSocket hub
 	go hub.Run()
 	
-	// Initialize database with performance optimizations
-	db, err := storage.InitDB("sharedrop.db")
-	if err != nil {
-		log.Fatalf("Failed to initialize database: %v", err)
+	// Initialize database
+	if err := app.InitDB(); err != nil {
+		log.Printf("Warning: Failed to initialize database: %v", err)
 	}
-	app.db = db
 	
-	// Load existing shares from database
-	app.loadFromDB()
+	// Load existing data
+	if err := app.LoadFromDB(); err != nil {
+		log.Printf("Warning: Failed to load from database: %v", err)
+	}
 	
 	return app
 }
 
-// loadFromDB loads shares and related data
-func (app *App) loadFromDB() {
-	shares, err := app.db.GetAllShares()
-	if err != nil {
-		log.Printf("Error loading shares: %v", err)
+// NewHub creates a new Hub
+func NewHub() *Hub {
+	return &Hub{
+		clients:    make(map[string]map[*Client]bool),
+		broadcast:  make(chan *Message, 256),
+		register:   make(chan *Client),
+		unregister: make(chan *Client),
+	}
+}
+
+// Run starts the Hub's main loop
+func (h *Hub) Run() {
+	for {
+		select {
+		case client := <-h.register:
+			h.mu.Lock()
+			if h.clients[client.shareID] == nil {
+				h.clients[client.shareID] = make(map[*Client]bool)
+			}
+			h.clients[client.shareID][client] = true
+			h.mu.Unlock()
+			
+			// Broadcast user joined
+			h.BroadcastToShare(client.shareID, &Message{
+				Type:      MSG_USER_JOINED,
+				ShareID:   client.shareID,
+				User:      client.userName,
+				Timestamp: time.Now(),
+			})
+			
+		case client := <-h.unregister:
+			h.mu.Lock()
+			if clients, ok := h.clients[client.shareID]; ok {
+				if _, exists := clients[client]; exists {
+					delete(clients, client)
+					close(client.send)
+					
+					if len(clients) == 0 {
+						delete(h.clients, client.shareID)
+					}
+				}
+			}
+			h.mu.Unlock()
+			
+			// Broadcast user left
+			h.BroadcastToShare(client.shareID, &Message{
+				Type:      MSG_USER_LEFT,
+				ShareID:   client.shareID,
+				User:      client.userName,
+				Timestamp: time.Now(),
+			})
+			
+		case message := <-h.broadcast:
+			h.BroadcastToShare(message.ShareID, message)
+		}
+	}
+}
+
+// BroadcastToShare sends a message to all clients in a share
+func (h *Hub) BroadcastToShare(shareID string, message *Message) {
+	h.mu.RLock()
+	clients := h.clients[shareID]
+	h.mu.RUnlock()
+	
+	if clients == nil {
 		return
 	}
-	
-	app.mu.Lock()
-	for _, share := range shares {
-		app.shares[share.ID] = share
-	}
-	app.mu.Unlock()
-	
-	log.Printf("Loaded %d shares from database", len(shares))
-}
 	
 	messageJSON, err := json.Marshal(message)
 	if err != nil {
