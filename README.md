@@ -97,11 +97,41 @@ Restart ShareDrop. It will auto-generate public URLs.
 
 ## Development
 
-Built with Go. To run from source:
+### Prerequisites
+- Go 1.21+
+- Node.js 18+
+- NPM
+
+### Running from Source
+
+1. **Install Dependencies**
+   ```bash
+   npm install
+   ```
+
+2. **Build Backend**
+   ```bash
+   # Compiles to bin/file-share-app
+   go build -o bin/file-share-app main.go
+   ```
+
+3. **Start Application**
+   ```bash
+   # Starts Electron + Go backend
+   npm start
+   ```
+
+### Building for Production
 
 ```bash
-go build -o file-share-app main.go
-./run-app.sh
+# Build for macOS (Universal)
+npm run build:mac
+
+# Build for Windows
+npm run build:win
+
+# Build for Linux
+npm run build:linux
 ```
 
 ## Tech Stack

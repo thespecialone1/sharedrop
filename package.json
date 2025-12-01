@@ -1,11 +1,11 @@
 {
   "name": "file-share-app",
   "version": "1.3.0",
-  "description": "**Share local folders instantly with password-protected links. No uploads, no cloud storage - files stay on your machine.**",
-  "main": "electron-main.js",
+  "description": "ShareDrop - Instant Folder Sharing",
+  "main": "frontend/electron/main.js",
   "scripts": {
     "start": "electron .",
-    "prebuild": "node build-prebuild.js",
+    "prebuild": "node tools/build-prebuild.js",
     "build": "npm run prebuild && electron-builder",
     "build:mac": "npm run prebuild && electron-builder --mac",
     "build:win": "npm run prebuild && electron-builder --win",
@@ -15,15 +15,13 @@
     "appId": "com.sharedrop.app",
     "productName": "ShareDrop",
     "files": [
-      "electron-main.js",
-      "preload.js",
-      "electron-ui.html"
-    ],
-    "extraResources": [
-      "file-share-app"
+      "frontend/**/*",
+      "file-share-app",
+      "file-share-app.exe",
+      "sharedrop.db",
+      "node_modules/**/*"
     ],
     "mac": {
-      "category": "public.app-category.utilities",
       "target": [
         {
           "target": "dmg",
@@ -32,39 +30,43 @@
           ]
         }
       ],
-      "icon": "icon.icns",
-      "x64ArchFiles": "Contents/Resources/file-share-app"
+      "icon": "frontend/assets/icons/icon.icns",
+      "category": "public.app-category.utilities",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "entitlements": null,
+      "entitlementsInherit": null
     },
     "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "icon": "icon.png"
+      "target": "nsis",
+      "icon": "frontend/assets/icons/icon.png"
     },
     "linux": {
       "target": "AppImage",
-      "category": "Utility",
-      "icon": "icon.png"
+      "icon": "frontend/assets/icons/icon.png",
+      "category": "Utility"
+    },
+    "dmg": {
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
     }
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "devDependencies": {
-    "canvas": "^3.2.0",
     "electron": "^38.4.0",
     "electron-builder": "^26.0.12"
-  }
+  },
+  "dependencies": {}
 }

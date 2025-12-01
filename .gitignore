@@ -1,10 +1,10 @@
 # Binaries
-file-share-app
-file-share-app.exe
-file-share-server
-*.app
-*.dmg
-*.zip
+bin/*
+!bin/.gitkeep
+
+# Data
+data/*
+!data/.gitkeep
 
 # Build artifacts
 dist/
@@ -15,10 +15,11 @@ node_modules/
 
 # Development files
 .DS_Store
-*.log
 
-# Database
-sharedrop.db
+# Logs and databases
+*.log
+*.db
+*.sqlite
 
 # Documentation (local only, not version controlled)
 docs/
