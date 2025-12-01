@@ -1,39 +1,32 @@
 # Binaries
-file-share-server
 file-share-app
-*.exe
-*.dll
-*.so
-*.dylib
+file-share-app.exe
+file-share-server
+*.app
+*.dmg
+*.zip
 
-# Test binary
-*.test
+# Build artifacts
+dist/
+build/
 
-# Output of the go coverage tool
-*.out
+# Dependencies
+node_modules/
 
-# Go workspace file
-go.work
+# Development files
+.DS_Store
+*.log
+
+# Database
+sharedrop.db
+
+# Documentation (local only, not version controlled)
+docs/
+
+# Temporary files
+*.backup
+test-thumb.html
 
 # IDE
 .vscode/
 .idea/
-*.swp
-*.swo
-*~
-
-# Node
-node_modules/
-package-lock.json
-
-# Build output
-dist/
-*.dmg
-*.zip
-ShareDrop.app/
-
-# macOS
-.DS_Store
-
-# Logs
-*.log

@@ -4167,7 +4167,7 @@ func main() {
 	http.HandleFunc("/api/check-cloudflared", app.handleCheckCloudflared)
 	http.HandleFunc("/api/sessions/validate-name", app.handleValidateName)
 	// Chat and vote endpoints
-	http.HandleFunc("/api/chat/messages", app.handleSendChatMessage)
+	http.HandleFunc("/api/chat/messages", app.handleChatMessage)
 	http.HandleFunc("/api/chat/messages/get", app.handleGetChatMessages)
 	http.HandleFunc("/api/votes", app.handleCastVote)
 	http.HandleFunc("/api/votes/get", app.handleGetVotes)
