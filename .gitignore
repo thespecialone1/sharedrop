@@ -1,33 +1,32 @@
-# Binaries
-bin/*
-!bin/.gitkeep
-
-# Data
-data/*
-!data/.gitkeep
-
-# Build artifacts
-dist/
-build/
-
 # Dependencies
 node_modules/
 
-# Development files
+# Build outputs
+dist/
+release/
+
+# IDE & OS
 .DS_Store
-
-# Logs and databases
-*.log
-*.db
-*.sqlite
-
-# Documentation (local only, not version controlled)
-docs/
-
-# Temporary files
-*.backup
-test-thumb.html
-
-# IDE
+*.swp
+*.swo
 .vscode/
 .idea/
+
+# Development files
+WARP.md
+*.log
+
+# Icon build artifacts (keep icon.png only)
+build/icon.iconset/
+
+# Database files (created at runtime in userData)
+src/main/db/*.sqlite
+src/main/db/*.sqlite-journal
+
+# Preview cache
+src/main/cache/
+
+# Environment
+.env
+.env.local
+.env.*.local
