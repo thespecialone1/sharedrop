@@ -65,7 +65,7 @@ npm run dist:win   # Windows
 
 ## License
 
-ISC
+MIT
 
 ---
 

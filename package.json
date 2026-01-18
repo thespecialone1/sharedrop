@@ -68,7 +68,7 @@
     "cloudflare-tunnel"
   ],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "devDependencies": {
     "@electron/rebuild": "^4.0.2",
     "@radix-ui/react-checkbox": "^1.3.3",
