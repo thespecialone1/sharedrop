@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-01-19
+
+### Added
+
+- **Voice Rooms (Audio Calling)**
+  - In-browser audio-only voice calls between session participants
+  - Host starts voice room; others can join while active
+  - Mesh WebRTC topology (peer-to-peer, supports up to 6 participants)
+  - Mute/unmute toggle with visual feedback
+  - Participant count indicator in chat sidebar
+  - Automatic cleanup when host disconnects or stops room
+  - Late joiner support (see active voice room immediately on session join)
+
+- **WebRTC Infrastructure**
+  - `/api/rtc-config` endpoint for ICE server configuration
+  - `/api/voice-status` endpoint for voice room state
+  - Socket.IO signaling: `voice-start`, `voice-stop`, `voice-join`, `voice-leave`
+  - WebRTC signaling: `voice-offer`, `voice-answer`, `voice-ice-candidate`
+
+- **TURN Server Support (Optional)**
+  - Environment variables: `TURN_URL`, `TURN_USER`, `TURN_PASS`
+  - Default STUN: `stun:stun.l.google.com:19302`
+  - Recommended: coturn for self-hosting, or Twilio/Xirsys for paid
+
+### Technical Details
+
+- New React hook: `useVoiceRoom` for voice room state management
+- New components: `VoicePanel`, `AudioElements`
+- New utilities: `rtc.ts` for WebRTC peer connection handling
+- Voice controls integrated into `ChatSidebar` header
+
 ## [1.0.0] - 2026-01-18
 
 ### Added

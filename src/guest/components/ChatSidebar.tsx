@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Send, X, Users, MessageCircle, Reply, Image as ImageIcon, Smile } from 'lucide-react';
 import { getPastelColor } from '../utils/color';
+import VoicePanel from './VoicePanel';
 
 const REACTION_EMOJIS = ['❤️', '😂', '😢', '😎', '😡', '👍', '👎'];
 
@@ -32,6 +33,20 @@ interface ChatSidebarProps {
     linkedImages?: string[];
     onClearLinkedImages?: () => void;
     onImageClick?: (path: string) => void;
+    // Voice room props
+    voiceRoom?: {
+        isActive: boolean;
+        isInVoice: boolean;
+        isHost: boolean;
+        participantCount: number;
+        isMuted: boolean;
+        isLoading: boolean;
+        onStart: () => void;
+        onJoin: () => void;
+        onLeave: () => void;
+        onStop: () => void;
+        onToggleMute: () => void;
+    };
 }
 
 const ChatSidebar = ({
@@ -47,7 +62,8 @@ const ChatSidebar = ({
     onReact,
     linkedImages = [],
     onClearLinkedImages,
-    onImageClick
+    onImageClick,
+    voiceRoom
 }: ChatSidebarProps) => {
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
@@ -97,9 +113,26 @@ const ChatSidebar = ({
                             <MessageCircle size={18} className="text-blue-500" />
                             <span className="font-semibold text-sm text-slate-800">Chat</span>
                         </div>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={onToggle}>
-                            <X size={16} className="text-slate-400" />
-                        </Button>
+                        <div className="flex items-center gap-2">
+                            {voiceRoom && (
+                                <VoicePanel
+                                    isActive={voiceRoom.isActive}
+                                    isInVoice={voiceRoom.isInVoice}
+                                    isHost={voiceRoom.isHost}
+                                    participantCount={voiceRoom.participantCount}
+                                    isMuted={voiceRoom.isMuted}
+                                    onStart={voiceRoom.onStart}
+                                    onJoin={voiceRoom.onJoin}
+                                    onLeave={voiceRoom.onLeave}
+                                    onStop={voiceRoom.onStop}
+                                    onToggleMute={voiceRoom.onToggleMute}
+                                    isLoading={voiceRoom.isLoading}
+                                />
+                            )}
+                            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={onToggle}>
+                                <X size={16} className="text-slate-400" />
+                            </Button>
+                        </div>
                     </div>
 
                     {/* Online users */}

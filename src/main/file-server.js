@@ -89,6 +89,9 @@ class FileServer {
         this.activeSockets = new Set();
         this.isStopped = false;
 
+        // Voice room state: Map<roomId, { hostSocketId, participants: Set<socketId> }>
+        this.voiceRooms = new Map();
+
         // Track HTTP connections
         this.server.on('connection', (socket) => {
             this.activeSockets.add(socket);
@@ -372,6 +375,34 @@ class FileServer {
         });
 
         this.app.post('/api/download-zip', requireAuth, (req, res) => generateZip(this.sharedPath, req.body.paths, res));
+
+        // RTC configuration endpoint for voice rooms
+        this.app.get('/api/rtc-config', requireAuth, (req, res) => {
+            const iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+            // Add TURN server if configured
+            if (process.env.TURN_URL) {
+                iceServers.push({
+                    urls: process.env.TURN_URL,
+                    username: process.env.TURN_USER || '',
+                    credential: process.env.TURN_PASS || ''
+                });
+            }
+            res.json({ iceServers });
+        });
+
+        // Voice room status endpoint
+        this.app.get('/api/voice-status', requireAuth, (req, res) => {
+            const voiceRoom = this.voiceRooms.get(this.roomId);
+            if (voiceRoom) {
+                res.json({
+                    active: true,
+                    hostSocketId: voiceRoom.hostSocketId,
+                    participantCount: voiceRoom.participants.size
+                });
+            } else {
+                res.json({ active: false });
+            }
+        });
     }
 
     ffmpegPreview(fullPath, cacheKey, res) {
@@ -489,6 +520,17 @@ class FileServer {
                 }));
                 socket.emit('chat-history', history);
                 this.io.to(room).emit('presence-update', getPresenceList(room));
+
+                // Sync voice room status if one is active
+                const voiceRoom = this.voiceRooms.get(room);
+                if (voiceRoom) {
+                    socket.emit('voice-started', {
+                        roomId: room,
+                        hostSocketId: voiceRoom.hostSocketId,
+                        hostUsername: voiceRoom.hostUsername,
+                        participantCount: voiceRoom.participants.size
+                    });
+                }
             });
 
             // Enhanced send-message with reply and attachments support
@@ -568,9 +610,187 @@ class FileServer {
                 if (user) socket.to(user.roomId).emit('typing-update', { username: user.username, isTyping });
             });
 
+            // ========== VOICE ROOM SIGNALING ==========
+
+            // Start a voice room (only if none exists for this session)
+            socket.on('voice-start', (data, cb) => {
+                const user = this.activeUsers.get(socket.id);
+                if (!user) return cb?.({ success: false, error: 'Not authenticated' });
+
+                const room = user.roomId;
+                if (this.voiceRooms.has(room)) {
+                    return cb?.({ success: false, error: 'Voice room already active' });
+                }
+
+                // Create new voice room
+                this.voiceRooms.set(room, {
+                    hostSocketId: socket.id,
+                    hostUsername: user.username,
+                    participants: new Set([socket.id])
+                });
+
+                console.log(`Voice room started by ${user.username} in ${room}`);
+
+                // Notify all users in the room
+                this.io.to(room).emit('voice-started', {
+                    roomId: room,
+                    hostSocketId: socket.id,
+                    hostUsername: user.username
+                });
+
+                cb?.({ success: true });
+            });
+
+            // Stop the voice room (host only)
+            socket.on('voice-stop', (data, cb) => {
+                const user = this.activeUsers.get(socket.id);
+                if (!user) return cb?.({ success: false, error: 'Not authenticated' });
+
+                const room = user.roomId;
+                const voiceRoom = this.voiceRooms.get(room);
+
+                if (!voiceRoom) {
+                    return cb?.({ success: false, error: 'No active voice room' });
+                }
+
+                if (voiceRoom.hostSocketId !== socket.id) {
+                    return cb?.({ success: false, error: 'Only the host can stop the voice room' });
+                }
+
+                console.log(`Voice room stopped by ${user.username} in ${room}`);
+
+                // Notify all users and delete room
+                this.io.to(room).emit('voice-stopped', { roomId: room });
+                this.voiceRooms.delete(room);
+
+                cb?.({ success: true });
+            });
+
+            // Join an existing voice room
+            socket.on('voice-join', (data, cb) => {
+                const user = this.activeUsers.get(socket.id);
+                if (!user) return cb?.({ success: false, error: 'Not authenticated' });
+
+                const room = user.roomId;
+                const voiceRoom = this.voiceRooms.get(room);
+
+                if (!voiceRoom) {
+                    return cb?.({ success: false, error: 'No active voice room' });
+                }
+
+                if (voiceRoom.participants.has(socket.id)) {
+                    return cb?.({ success: false, error: 'Already in voice room' });
+                }
+
+                // Add to participants
+                voiceRoom.participants.add(socket.id);
+                const existingParticipants = Array.from(voiceRoom.participants)
+                    .filter(id => id !== socket.id)
+                    .map(id => {
+                        const u = this.activeUsers.get(id);
+                        return { socketId: id, username: u?.username || 'Unknown' };
+                    });
+
+                console.log(`${user.username} joined voice room in ${room}`);
+
+                // Notify others about new participant
+                socket.to(room).emit('voice-joined', {
+                    socketId: socket.id,
+                    username: user.username
+                });
+
+                cb?.({
+                    success: true,
+                    participants: existingParticipants,
+                    hostSocketId: voiceRoom.hostSocketId
+                });
+            });
+
+            // Leave the voice room
+            socket.on('voice-leave', (data, cb) => {
+                const user = this.activeUsers.get(socket.id);
+                if (!user) return cb?.({ success: false, error: 'Not authenticated' });
+
+                const room = user.roomId;
+                const voiceRoom = this.voiceRooms.get(room);
+
+                if (!voiceRoom || !voiceRoom.participants.has(socket.id)) {
+                    return cb?.({ success: false, error: 'Not in voice room' });
+                }
+
+                // If host leaves, stop the entire room
+                if (voiceRoom.hostSocketId === socket.id) {
+                    console.log(`Host ${user.username} left, stopping voice room in ${room}`);
+                    this.io.to(room).emit('voice-stopped', { roomId: room });
+                    this.voiceRooms.delete(room);
+                } else {
+                    // Regular participant leaves
+                    voiceRoom.participants.delete(socket.id);
+                    console.log(`${user.username} left voice room in ${room}`);
+                    socket.to(room).emit('voice-left', {
+                        socketId: socket.id,
+                        username: user.username
+                    });
+                }
+
+                cb?.({ success: true });
+            });
+
+            // WebRTC signaling: forward offer
+            socket.on('voice-offer', ({ toSocketId, sdp }) => {
+                const user = this.activeUsers.get(socket.id);
+                if (!user) return;
+
+                this.io.to(toSocketId).emit('voice-offer', {
+                    fromSocketId: socket.id,
+                    fromUsername: user.username,
+                    sdp
+                });
+            });
+
+            // WebRTC signaling: forward answer
+            socket.on('voice-answer', ({ toSocketId, sdp }) => {
+                const user = this.activeUsers.get(socket.id);
+                if (!user) return;
+
+                this.io.to(toSocketId).emit('voice-answer', {
+                    fromSocketId: socket.id,
+                    fromUsername: user.username,
+                    sdp
+                });
+            });
+
+            // WebRTC signaling: forward ICE candidate
+            socket.on('voice-ice-candidate', ({ toSocketId, candidate }) => {
+                this.io.to(toSocketId).emit('voice-ice-candidate', {
+                    fromSocketId: socket.id,
+                    candidate
+                });
+            });
+
+            // ========== END VOICE ROOM SIGNALING ==========
+
             socket.on('disconnect', () => {
                 const user = this.activeUsers.get(socket.id);
                 if (user) {
+                    // Clean up voice room participation on disconnect
+                    const voiceRoom = this.voiceRooms.get(user.roomId);
+                    if (voiceRoom && voiceRoom.participants.has(socket.id)) {
+                        if (voiceRoom.hostSocketId === socket.id) {
+                            // Host disconnected - stop the entire room
+                            console.log(`Voice host ${user.username} disconnected, stopping room`);
+                            this.io.to(user.roomId).emit('voice-stopped', { roomId: user.roomId });
+                            this.voiceRooms.delete(user.roomId);
+                        } else {
+                            // Participant disconnected
+                            voiceRoom.participants.delete(socket.id);
+                            this.io.to(user.roomId).emit('voice-left', {
+                                socketId: socket.id,
+                                username: user.username
+                            });
+                        }
+                    }
+
                     this.activeUsers.delete(socket.id);
                     this.io.to(user.roomId).emit('presence-update', getPresenceList(user.roomId));
                 }

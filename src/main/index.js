@@ -1,3 +1,7 @@
+// Initialize Sentry FIRST - before any other imports
+import { initSentry, captureException, setSessionContext, addBreadcrumb } from './sentry.js';
+initSentry();
+
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -189,6 +193,8 @@ ipcMain.handle('deploy-session', async (_, sessionId) => {
     };
   } catch (error) {
     console.error('Deploy error:', error.message);
+    // Capture error to Sentry with context
+    captureException(error, { sessionId, action: 'deploy-session' });
     await stopActiveSession();
     isDeploying = false;
     return { success: false, error: error.message };

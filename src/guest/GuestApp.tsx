@@ -14,6 +14,8 @@ import { getPastelColor } from './utils/color';
 import ChatSidebar from './components/ChatSidebar';
 import SimpleVideoPlayer from './components/VideoPlayer';
 import StatsTags from './components/StatsTags';
+import { useVoiceRoom } from './hooks/useVoiceRoom';
+import AudioElements from './components/AudioElements';
 
 function useDebounce<T>(value: T, delay: number): T {
     const [debouncedValue, setDebouncedValue] = useState<T>(value);
@@ -209,6 +211,10 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
     const [typingUser, setTypingUser] = useState<string | null>(null);
     const [linkedImages, setLinkedImages] = useState<string[]>([]);
     const socketRef = useRef<Socket | null>(null);
+    const [mySocketId, setMySocketId] = useState<string | null>(null);
+
+    // Voice room hook
+    const voiceRoom = useVoiceRoom(socketRef.current, mySocketId);
 
     const debouncedSearch = useDebounce(searchTerm, 300);
 
@@ -261,7 +267,10 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
             socket.emit('join-session', { username, color: getPastelColor(username), roomId });
         };
 
-        socket.on('connect', joinSession);
+        socket.on('connect', () => {
+            setMySocketId(socket.id || null);
+            joinSession();
+        });
 
         socket.on('chat-history', (history: ChatMessage[]) => {
             const normalized = history.map(m => ({
@@ -409,7 +418,23 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
                 linkedImages={linkedImages}
                 onClearLinkedImages={() => setLinkedImages([])}
                 onImageClick={(path) => setPreviewPath(path)}
+                voiceRoom={{
+                    isActive: voiceRoom.isActive,
+                    isInVoice: voiceRoom.isInVoice,
+                    isHost: voiceRoom.isHost,
+                    participantCount: voiceRoom.participantCount,
+                    isMuted: voiceRoom.isMuted,
+                    isLoading: voiceRoom.isLoading,
+                    onStart: voiceRoom.startVoice,
+                    onJoin: voiceRoom.joinVoice,
+                    onLeave: voiceRoom.leaveVoice,
+                    onStop: voiceRoom.stopVoice,
+                    onToggleMute: voiceRoom.toggleMute
+                }}
             />
+
+            {/* Audio elements for remote voice streams */}
+            <AudioElements streams={voiceRoom.remoteStreams} />
 
             {/* Main content */}
             <div className="flex-1 flex flex-col min-w-0 bg-white">

@@ -15,6 +15,7 @@ SharedDrop lets you share any folder from your computer with anyone, anywhere. N
 - 🔒 **Password Protected** — Every session gets a unique access code
 - 🌐 **Cloudflare Tunnel** — Secure connection, no port forwarding needed
 - 💬 **Real-time Chat** — Talk with connected guests
+- 🎙️ **Voice Rooms** — Audio calling with mesh WebRTC (up to 6 participants)
 - 📁 **Browse & Preview** — Images, videos, and documents
 - 📦 **Bulk Download** — Select multiple files as ZIP
 
