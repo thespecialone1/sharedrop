@@ -30,3 +30,7 @@ src/main/cache/
 .env
 .env.local
 .env.*.local
+
+# Agent configuration
+.agent/
+docs/

@@ -17,14 +17,33 @@ export interface RtcConfig {
  * Fetch ICE server configuration from backend
  */
 export async function fetchRtcConfig(): Promise<RtcConfig> {
+    const defaultServers = [
+        { urls: 'stun:stun.l.google.com:19302' }
+    ];
+
     try {
         const res = await fetch('/api/rtc-config');
         if (!res.ok) throw new Error('Failed to fetch RTC config');
-        return await res.json();
+
+        const config = await res.json();
+
+        // Strict validation: must be array of objects with urls
+        const servers = Array.isArray(config?.iceServers) ? config.iceServers : [];
+        const validServers = servers.filter((s: any) => s && (s.urls || s.url));
+
+        if (!validServers.length) {
+            console.warn('[WebRTC] Invalid remote config, using defaults');
+            return { iceServers: defaultServers };
+        }
+
+        // Warning removed per user preference
+        console.log('[WebRTC] Using remote ICE config', { iceServers: validServers });
+        return { iceServers: validServers };
     } catch (e) {
-        console.error('RTC config fetch failed, using default STUN:', e);
+        console.warn('RTC config fetch failed, using default STUN:', e);
+        console.log('[WebRTC] Using default Google STUN servers');
         return {
-            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+            iceServers: defaultServers
         };
     }
 }
@@ -38,25 +57,38 @@ export function createPeerConnection(
     onTrack: (stream: MediaStream) => void,
     onConnectionStateChange?: (state: RTCPeerConnectionState) => void
 ): RTCPeerConnection {
-    const pc = new RTCPeerConnection({ iceServers: config.iceServers });
+    const pc = new RTCPeerConnection({
+        iceServers: config.iceServers,
+        iceCandidatePoolSize: 2,
+        bundlePolicy: 'max-bundle',
+        rtcpMuxPolicy: 'require'
+    });
 
     pc.onicecandidate = (event) => {
         if (event.candidate) {
+            console.log(`[WebRTC] ICE candidate generated for peer`);
             onIceCandidate(event.candidate);
+        } else {
+            console.log(`[WebRTC] ICE gathering complete`);
         }
     };
 
     pc.ontrack = (event) => {
+        console.log(`[WebRTC] Track received: ${event.streams[0]?.id}`);
         if (event.streams && event.streams[0]) {
             onTrack(event.streams[0]);
         }
     };
 
-    if (onConnectionStateChange) {
-        pc.onconnectionstatechange = () => {
+    pc.onconnectionstatechange = () => {
+        console.log(`[WebRTC] Connection state changed: ${pc.connectionState}`);
+        if (pc.connectionState === 'failed') {
+            console.error('[WebRTC] ICE/Connection failed! Check STUN/TURN or Firewall.');
+        }
+        if (onConnectionStateChange) {
             onConnectionStateChange(pc.connectionState);
-        };
-    }
+        }
+    };
 
     return pc;
 }
@@ -119,8 +151,21 @@ export async function handleIceCandidate(
 /**
  * Request microphone access
  */
-export async function getMicrophoneStream(): Promise<MediaStream> {
-    return navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+export async function getMicrophoneStream(deviceId?: string): Promise<MediaStream> {
+    const audioConstraints: any = {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+    };
+
+    if (deviceId) {
+        audioConstraints.deviceId = { exact: deviceId };
+    }
+
+    return navigator.mediaDevices.getUserMedia({
+        audio: audioConstraints,
+        video: false
+    });
 }
 
 /**

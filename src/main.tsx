@@ -1,20 +1,10 @@
 /// <reference types="vite/client" />
 import React, { Component, ErrorInfo, ReactNode } from 'react'
 import ReactDOM from 'react-dom/client'
-import * as Sentry from '@sentry/electron/renderer'
 import App from './App'
 import './index.css'
 
-// Initialize Sentry for renderer process
-const SENTRY_DSN = (import.meta as unknown as { env: Record<string, string> }).env.VITE_SENTRY_DSN;
-if (SENTRY_DSN) {
-    Sentry.init({
-        dsn: SENTRY_DSN
-    });
-    console.log('[Sentry] Renderer error tracking initialized');
-} else {
-    console.warn('[Sentry] No DSN configured for renderer. Set VITE_SENTRY_DSN in .env');
-}
+// [REMOVED] Sentry initialization
 
 // Error Boundary component for catching React errors
 interface ErrorBoundaryState {
@@ -34,8 +24,7 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryS
 
     componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
         console.error('React error caught:', error, errorInfo);
-        // Capture to Sentry
-        Sentry.captureException(error, { extra: { componentStack: errorInfo.componentStack } });
+        // [REMOVED] Sentry capture
     }
 
     render(): ReactNode {

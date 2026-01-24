@@ -5,6 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Send, X, Users, MessageCircle, Reply, Image as ImageIcon, Smile } from 'lucide-react';
 import { getPastelColor } from '../utils/color';
 import VoicePanel from './VoicePanel';
+import ParticipantList from './ParticipantList';
+import ReactionsBar from './ReactionsBar';
 
 const REACTION_EMOJIS = ['❤️', '😂', '😢', '😎', '😡', '👍', '👎'];
 
@@ -41,12 +43,26 @@ interface ChatSidebarProps {
         participantCount: number;
         isMuted: boolean;
         isLoading: boolean;
+        isReconnecting: boolean;
+        hostReconnecting: boolean;
         onStart: () => void;
         onJoin: () => void;
         onLeave: () => void;
         onStop: () => void;
         onToggleMute: () => void;
+        isLocked: boolean;
+        isPttEnabled: boolean;
+        isSpeaking: boolean;
+        onToggleLock: () => void;
+        onMuteAll: () => void;
+        onTogglePtt: () => void;
     };
+    participants?: Array<{ socketId: string, username: string, isSpeaking?: boolean }>;
+    hostSocketId?: string | null;
+    mySocketId?: string | null;
+    onKickParticipant?: (socketId: string) => void;
+    onSendReaction?: (type: string) => void;
+    lastBroadcastReaction?: { username: string, color: string, type: string, socketId: string, timestamp: number } | null;
 }
 
 const ChatSidebar = ({
@@ -63,7 +79,13 @@ const ChatSidebar = ({
     linkedImages = [],
     onClearLinkedImages,
     onImageClick,
-    voiceRoom
+    voiceRoom,
+    participants = [],
+    hostSocketId,
+    mySocketId,
+    onKickParticipant,
+    onSendReaction,
+    lastBroadcastReaction
 }: ChatSidebarProps) => {
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
@@ -72,6 +94,13 @@ const ChatSidebar = ({
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
+
+    const handleSendReaction = (type: string) => {
+        onSendReaction?.(type);
+        // Local animation handled by global overlay reacting to server broadcast
+        // Haptic feedback
+        if (navigator.vibrate) navigator.vibrate(10);
+    };
 
     const handleSubmit = () => {
         if (!chatInput.trim() && linkedImages.length === 0) return;
@@ -101,9 +130,9 @@ const ChatSidebar = ({
 
             {/* Chat Panel */}
             <div className={`
-                fixed top-0 left-0 h-full z-50 transition-transform duration-300 ease-out
+                fixed inset-y-0 left-0 z-[60] transition-transform duration-300 ease-out
                 bg-white shadow-2xl border-r border-slate-100
-                w-full sm:w-[25vw] sm:min-w-[320px] sm:max-w-[400px]
+                w-[85vw] sm:w-[25vw] sm:min-w-[320px] sm:max-w-[400px]
                 ${isOpen ? 'translate-x-0' : '-translate-x-full'}
             `}>
                 <div className="flex flex-col h-full">
@@ -121,12 +150,20 @@ const ChatSidebar = ({
                                     isHost={voiceRoom.isHost}
                                     participantCount={voiceRoom.participantCount}
                                     isMuted={voiceRoom.isMuted}
+                                    isLocked={voiceRoom.isLocked}
+                                    isPttEnabled={voiceRoom.isPttEnabled}
+                                    isSpeaking={voiceRoom.isSpeaking}
                                     onStart={voiceRoom.onStart}
                                     onJoin={voiceRoom.onJoin}
                                     onLeave={voiceRoom.onLeave}
                                     onStop={voiceRoom.onStop}
                                     onToggleMute={voiceRoom.onToggleMute}
+                                    onToggleLock={voiceRoom.onToggleLock}
+                                    onMuteAll={voiceRoom.onMuteAll}
+                                    onTogglePtt={voiceRoom.onTogglePtt}
                                     isLoading={voiceRoom.isLoading}
+                                    isReconnecting={voiceRoom.isReconnecting}
+                                    hostReconnecting={voiceRoom.hostReconnecting}
                                 />
                             )}
                             <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={onToggle}>
@@ -134,6 +171,25 @@ const ChatSidebar = ({
                             </Button>
                         </div>
                     </div>
+
+
+
+                    {/* Participant List (Voice) */}
+                    {voiceRoom?.isInVoice && (
+                        <div className="flex-shrink-0 px-3 py-2 border-b border-slate-100 bg-slate-50/50">
+                            <div className="flex items-center gap-1.5 mb-1.5">
+                                <Users size={12} className="text-green-500" />
+                                <span className="text-[10px] font-semibold text-slate-500 uppercase">Voice Call</span>
+                            </div>
+                            <ParticipantList
+                                participants={participants}
+                                hostSocketId={hostSocketId || ''}
+                                currentUserId={mySocketId || ''}
+                                isHost={voiceRoom.isHost}
+                                onKick={onKickParticipant || (() => { })}
+                            />
+                        </div>
+                    )}
 
                     {/* Online users */}
                     <div className="flex-shrink-0 px-3 py-2 border-b border-slate-100 bg-white">
@@ -313,8 +369,16 @@ const ChatSidebar = ({
                         </div>
                     )}
 
+
+
                     {/* Input */}
                     <div className="flex-shrink-0 p-3 border-t border-slate-100 bg-slate-50">
+                        {/* Voice Reactions */}
+                        {voiceRoom?.isInVoice && (
+                            <div className="mb-2 flex justify-center">
+                                <ReactionsBar onReact={handleSendReaction} />
+                            </div>
+                        )}
                         <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="flex gap-2">
                             <Input
                                 value={chatInput}

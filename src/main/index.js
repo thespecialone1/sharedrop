@@ -1,6 +1,5 @@
 // Initialize Sentry FIRST - before any other imports
-import { initSentry, captureException, setSessionContext, addBreadcrumb } from './sentry.js';
-initSentry();
+// [REMOVED] Sentry initialization
 
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import path from 'path';
@@ -37,7 +36,8 @@ function createWindow() {
       devTools: process.env.NODE_ENV === 'development'
     },
     titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 16, y: 16 }
+    trafficLightPosition: { x: 16, y: 16 },
+    icon: path.join(__dirname, '../../build/icon.png')
   });
 
   if (process.env.NODE_ENV === 'development') {
@@ -55,6 +55,9 @@ app.whenReady().then(() => {
 
   createWindow();
 });
+
+// Fix for local WebRTC discovery (ICE failed)
+app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
 
 app.on('window-all-closed', async () => {
   await stopActiveSession();
@@ -194,7 +197,9 @@ ipcMain.handle('deploy-session', async (_, sessionId) => {
   } catch (error) {
     console.error('Deploy error:', error.message);
     // Capture error to Sentry with context
-    captureException(error, { sessionId, action: 'deploy-session' });
+    console.error('Deploy error:', error.message);
+    // [REMOVED] Sentry capture
+    await stopActiveSession();
     await stopActiveSession();
     isDeploying = false;
     return { success: false, error: error.message };

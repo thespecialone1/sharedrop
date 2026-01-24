@@ -12,6 +12,7 @@ import {
 import { io, Socket } from 'socket.io-client';
 import { getPastelColor } from './utils/color';
 import ChatSidebar from './components/ChatSidebar';
+import { ReactionOverlay } from './components/ReactionOverlay';
 import SimpleVideoPlayer from './components/VideoPlayer';
 import StatsTags from './components/StatsTags';
 import { useVoiceRoom } from './hooks/useVoiceRoom';
@@ -255,10 +256,14 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
 
     useEffect(() => {
         const socket = io({
+            path: '/socket.io/',
+            transports: ['websocket', 'polling'], // Prefer websocket for stability
             reconnection: true,
-            reconnectionAttempts: 10,
+            reconnectionAttempts: 20,
             reconnectionDelay: 1000,
-            timeout: 20000
+            reconnectionDelayMax: 5000,
+            timeout: 30000, // Increase timeout protection for tunnel latency
+            autoConnect: true
         });
         socketRef.current = socket;
 
@@ -270,6 +275,14 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
         socket.on('connect', () => {
             setMySocketId(socket.id || null);
             joinSession();
+
+            // Attempt voice reconnect if we were in voice
+            // We use a small timeout to let session join first
+            setTimeout(() => {
+                if (voiceRoom.isInVoice) {
+                    voiceRoom.reconnectVoice();
+                }
+            }, 500);
         });
 
         socket.on('chat-history', (history: ChatMessage[]) => {
@@ -424,17 +437,34 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
                     isHost: voiceRoom.isHost,
                     participantCount: voiceRoom.participantCount,
                     isMuted: voiceRoom.isMuted,
-                    isLoading: voiceRoom.isLoading,
+                    isLocked: voiceRoom.isLocked,
+                    isPttEnabled: voiceRoom.isPttEnabled,
+                    isSpeaking: voiceRoom.isSpeaking,
                     onStart: voiceRoom.startVoice,
                     onJoin: voiceRoom.joinVoice,
                     onLeave: voiceRoom.leaveVoice,
                     onStop: voiceRoom.stopVoice,
-                    onToggleMute: voiceRoom.toggleMute
+                    onToggleMute: voiceRoom.toggleMute,
+                    onToggleLock: voiceRoom.toggleLock,
+                    onMuteAll: voiceRoom.muteAll,
+                    onTogglePtt: voiceRoom.togglePtt,
+                    isLoading: voiceRoom.isLoading,
+                    isReconnecting: voiceRoom.isReconnecting,
+                    hostReconnecting: voiceRoom.hostReconnecting
                 }}
+                participants={voiceRoom.participants}
+                hostSocketId={voiceRoom.hostSocketId}
+                mySocketId={socketRef.current?.id}
+                onKickParticipant={voiceRoom.kickUser}
+                onSendReaction={voiceRoom.sendReaction}
+                lastBroadcastReaction={voiceRoom.lastBroadcastReaction}
             />
 
             {/* Audio elements for remote voice streams */}
             <AudioElements streams={voiceRoom.remoteStreams} />
+
+            {/* Reaction Overlay */}
+            <ReactionOverlay lastReaction={voiceRoom?.lastBroadcastReaction || null} isSidebarOpen={isSidebarOpen} />
 
             {/* Main content */}
             <div className="flex-1 flex flex-col min-w-0 bg-white">
@@ -468,9 +498,14 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
 
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2">
-                                    <Home size={16} className="text-slate-400 flex-shrink-0" />
-                                    <p className="text-base font-semibold text-slate-800 truncate">
-                                        {currentPath ? currentPath.split('/').pop() : 'Gallery'}
+                                    {/* App Logo/Home */}
+                                    {currentPath ? (
+                                        <Home size={18} className="text-slate-400 flex-shrink-0" />
+                                    ) : (
+                                        <img src="/branding/mascot-master-64.png" className="w-6 h-6 object-contain" alt="SharedDrop" />
+                                    )}
+                                    <p className="text-base font-bold text-slate-800 truncate">
+                                        {currentPath ? currentPath.split('/').pop() : 'SharedDrop'}
                                     </p>
                                 </div>
                                 <p className="text-xs text-slate-400 truncate">/{currentPath || ''}</p>
@@ -572,7 +607,7 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
                 {/* Preview Modal */}
                 <Dialog open={!!previewPath} onOpenChange={(open) => !open && setPreviewPath(null)}>
                     <DialogContent
-                        className="max-w-[95vw] w-full max-h-[95vh] p-0 border-0 bg-black/95 backdrop-blur-xl rounded-2xl overflow-hidden shadow-2xl flex flex-col focus:outline-none"
+                        className="max-w-[95vw] w-full max-h-[95vh] p-0 border-0 bg-black/95 backdrop-blur-xl rounded-2xl overflow-hidden shadow-2xl flex flex-col focus:outline-none z-[100]"
                         onKeyDown={(e) => {
                             if (e.key === 'ArrowRight') { e.preventDefault(); handleNavigate(1); }
                             if (e.key === 'ArrowLeft') { e.preventDefault(); handleNavigate(-1); }
@@ -581,6 +616,20 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
                     >
                         <DialogTitle className="sr-only">Preview</DialogTitle>
                         <DialogDescription className="sr-only">Media Preview</DialogDescription>
+
+                        {/* Top-right Actions */}
+                        <div className="absolute top-4 right-4 z-[110] flex items-center gap-2">
+                            {/* Close Button */}
+                            <Button
+                                variant="secondary"
+                                size="icon"
+                                className="h-10 w-10 rounded-full bg-black/50 text-white hover:bg-black/70 backdrop-blur-sm border border-white/10 shadow-lg transition-all"
+                                onClick={() => setPreviewPath(null)}
+                                title="Close Preview"
+                            >
+                                <X size={20} strokeWidth={2.5} />
+                            </Button>
+                        </div>
 
                         {/* Image action buttons */}
                         {previewPath && /\.(jpg|jpeg|png|webp|heic|dng|raw|arw|gif|svg|bmp)$/i.test(previewPath) && (

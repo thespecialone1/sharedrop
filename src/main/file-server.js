@@ -618,7 +618,32 @@ class FileServer {
                 if (!user) return cb?.({ success: false, error: 'Not authenticated' });
 
                 const room = user.roomId;
-                if (this.voiceRooms.has(room)) {
+                // Resuming host session?
+                // Check if there is an existing room where this user WAS the host
+                // Typically we'd check against a persistent ID, but username is our best proxy here + sessionId
+                const existingRoom = this.voiceRooms.get(room);
+                if (existingRoom && existingRoom.hostUsername === user.username) {
+                    // It's the previous host returning!
+                    console.log(`Host ${user.username} reconnected to voice room`);
+                    if (existingRoom.disconnectTimeout) {
+                        clearTimeout(existingRoom.disconnectTimeout);
+                        existingRoom.disconnectTimeout = null;
+                    }
+                    existingRoom.hostSocketId = socket.id;
+                    existingRoom.participants.add(socket.id);
+                    cb?.({ success: true, hostSocketId: socket.id });
+
+                    this.io.to(room).emit('voice-started', {
+                        roomId: room,
+                        hostSocketId: socket.id,
+                        hostUsername: user.username,
+                        participantCount: existingRoom.participants.size
+                    });
+                    this.broadcastVoiceState(room);
+                    return;
+                }
+
+                if (existingRoom) {
                     return cb?.({ success: false, error: 'Voice room already active' });
                 }
 
@@ -626,7 +651,10 @@ class FileServer {
                 this.voiceRooms.set(room, {
                     hostSocketId: socket.id,
                     hostUsername: user.username,
-                    participants: new Set([socket.id])
+                    participants: new Set([socket.id]),
+                    locked: false,
+                    mutedAll: false,
+                    startTime: Date.now()
                 });
 
                 console.log(`Voice room started by ${user.username} in ${room}`);
@@ -638,7 +666,9 @@ class FileServer {
                     hostUsername: user.username
                 });
 
-                cb?.({ success: true });
+                this.broadcastVoiceState(room);
+
+                cb?.({ success: true, hostSocketId: socket.id });
             });
 
             // Stop the voice room (host only)
@@ -663,6 +693,14 @@ class FileServer {
                 this.io.to(room).emit('voice-stopped', { roomId: room });
                 this.voiceRooms.delete(room);
 
+                // Broadcast empty/inactive state or just let the stopped event handle it?
+                // Ideally send a final state update saying "active: false" BEFORE deleting?
+                // Or deleting it means next getVoiceState returns null/false.
+                // We should broadcast to the room that state has changed.
+                // Since room is deleted, broadcastVoiceState(room) returns early.
+                // We need to manually emit inactive state.
+                this.io.to(room).emit('voice-state', { active: false, roomId: room, participantCount: 0 });
+
                 cb?.({ success: true });
             });
 
@@ -682,6 +720,27 @@ class FileServer {
                     return cb?.({ success: false, error: 'Already in voice room' });
                 }
 
+                if (voiceRoom.locked && voiceRoom.hostSocketId !== socket.id) {
+                    return cb?.({ success: false, error: 'Room is locked' });
+                }
+
+                // Check if this is the host returning
+                if (voiceRoom.hostUsername === user.username) {
+                    console.log(`Host ${user.username} returning to voice room via join`);
+                    if (voiceRoom.disconnectTimeout) {
+                        clearTimeout(voiceRoom.disconnectTimeout);
+                        voiceRoom.disconnectTimeout = null;
+                    }
+                    voiceRoom.hostSocketId = socket.id;
+                    // Notify everyone that host is back/updated
+                    this.io.to(room).emit('voice-started', {
+                        roomId: room,
+                        hostSocketId: socket.id,
+                        hostUsername: user.username,
+                        participantCount: voiceRoom.participants.size + 1
+                    });
+                }
+
                 // Add to participants
                 voiceRoom.participants.add(socket.id);
                 const existingParticipants = Array.from(voiceRoom.participants)
@@ -698,6 +757,8 @@ class FileServer {
                     socketId: socket.id,
                     username: user.username
                 });
+
+                this.broadcastVoiceState(room);
 
                 cb?.({
                     success: true,
@@ -723,6 +784,7 @@ class FileServer {
                     console.log(`Host ${user.username} left, stopping voice room in ${room}`);
                     this.io.to(room).emit('voice-stopped', { roomId: room });
                     this.voiceRooms.delete(room);
+                    this.io.to(room).emit('voice-state', { active: false, roomId: room, participantCount: 0 });
                 } else {
                     // Regular participant leaves
                     voiceRoom.participants.delete(socket.id);
@@ -731,9 +793,32 @@ class FileServer {
                         socketId: socket.id,
                         username: user.username
                     });
+                    this.broadcastVoiceState(room);
                 }
 
                 cb?.({ success: true });
+            });
+
+            // HOST: End Voice
+            socket.on('voice-end', (data, cb) => {
+                const user = this.activeUsers.get(socket.id);
+                if (!user) return cb?.({ success: false });
+                const room = user.roomId;
+                const voiceRoom = this.voiceRooms.get(room);
+
+                if (voiceRoom && voiceRoom.hostSocketId === socket.id) {
+                    console.log(`Voice room ended by host ${user.username}`);
+                    this.io.to(room).emit('voice-ended', { roomId: room });
+                    this.voiceRooms.delete(room);
+                    this.io.to(room).emit('voice-state', { active: false, roomId: room, participantCount: 0 });
+                    this.activeUsers.forEach(u => {
+                        // getPresenceList is a local helper, not a class method
+                        if (u.roomId === room) this.io.to(room).emit('presence-update', getPresenceList(room));
+                    });
+                    cb?.({ success: true });
+                } else {
+                    cb?.({ success: false, error: 'Not authorized' });
+                }
             });
 
             // WebRTC signaling: forward offer
@@ -768,6 +853,99 @@ class FileServer {
                 });
             });
 
+            // CRITICAL: WebRTC signaling for ICE Restart (network recovery)
+            // This allows peers to negotiate a new connection if the old one drops.
+            socket.on('voice-restart', ({ toSocketId, sdp }) => {
+                const user = this.activeUsers.get(socket.id);
+                if (!user) return;
+
+                console.log(`Forwarding ICE restart from ${user.username} to ${toSocketId}`);
+                this.io.to(toSocketId).emit('voice-restart', {
+                    fromSocketId: socket.id,
+                    fromUsername: user.username,
+                    sdp
+                });
+            });
+
+            // Owner actions
+            socket.on('voice-lock', () => {
+                const user = this.activeUsers.get(socket.id);
+                if (!user) return;
+                const room = user.roomId;
+                const voiceRoom = this.voiceRooms.get(room);
+
+                if (voiceRoom && voiceRoom.hostSocketId === socket.id) {
+                    voiceRoom.locked = true;
+                    this.io.to(room).emit('voice-locked');
+                    this.broadcastVoiceState(room);
+                }
+            });
+
+            socket.on('voice-unlock', () => {
+                const user = this.activeUsers.get(socket.id);
+                if (!user) return;
+                const room = user.roomId;
+                const voiceRoom = this.voiceRooms.get(room);
+
+                if (voiceRoom && voiceRoom.hostSocketId === socket.id) {
+                    voiceRoom.locked = false;
+                    this.io.to(room).emit('voice-unlocked');
+                    this.broadcastVoiceState(room);
+                }
+            });
+
+            socket.on('voice-mute-all', () => {
+                const user = this.activeUsers.get(socket.id);
+                if (!user) return;
+                const room = user.roomId;
+                const voiceRoom = this.voiceRooms.get(room);
+
+                if (voiceRoom && voiceRoom.hostSocketId === socket.id) {
+                    voiceRoom.mutedAll = true;
+                    this.io.to(room).emit('voice-muted-all');
+                    this.broadcastVoiceState(room);
+                }
+            });
+
+            socket.on('voice-kick', ({ targetSocketId }) => {
+                const user = this.activeUsers.get(socket.id);
+                if (!user) return;
+                const room = user.roomId;
+                const voiceRoom = this.voiceRooms.get(room);
+
+                if (voiceRoom && voiceRoom.hostSocketId === socket.id) {
+                    if (voiceRoom.participants.has(targetSocketId)) {
+                        voiceRoom.participants.delete(targetSocketId);
+                        this.io.to(targetSocketId).emit('voice-kicked');
+                        this.io.to(room).emit('voice-left', { socketId: targetSocketId });
+                        this.broadcastVoiceState(room);
+                    }
+                }
+            });
+
+            socket.on('reaction', ({ type }) => {
+                const user = this.activeUsers.get(socket.id);
+                if (!user) return;
+
+                // Server authoritative broadcast (everyone including sender)
+                this.io.to(user.roomId).emit('reaction-broadcast', {
+                    username: user.username,
+                    color: user.color || this.getPastelColor(user.username),
+                    type,
+                    socketId: socket.id,
+                    timestamp: Date.now()
+                });
+            });
+
+            socket.on('speaking', ({ isSpeaking }) => {
+                const user = this.activeUsers.get(socket.id);
+                if (!user) return;
+                this.io.to(user.roomId).emit('voice-speaking', {
+                    socketId: socket.id,
+                    isSpeaking
+                });
+            });
+
             // ========== END VOICE ROOM SIGNALING ==========
 
             socket.on('disconnect', () => {
@@ -777,10 +955,35 @@ class FileServer {
                     const voiceRoom = this.voiceRooms.get(user.roomId);
                     if (voiceRoom && voiceRoom.participants.has(socket.id)) {
                         if (voiceRoom.hostSocketId === socket.id) {
-                            // Host disconnected - stop the entire room
-                            console.log(`Voice host ${user.username} disconnected, stopping room`);
-                            this.io.to(user.roomId).emit('voice-stopped', { roomId: user.roomId });
-                            this.voiceRooms.delete(user.roomId);
+                            // Host disconnected - give 15s grace period to reconnect
+                            console.log(`Voice host ${user.username} disconnected, starting 15s grace period`);
+                            voiceRoom.participants.delete(socket.id);
+
+                            // Clear any existing timeout
+                            if (voiceRoom.disconnectTimeout) {
+                                clearTimeout(voiceRoom.disconnectTimeout);
+                            }
+
+                            // Set grace period timeout
+                            voiceRoom.disconnectTimeout = setTimeout(() => {
+                                // Check if room still exists and host hasn't returned
+                                const room = this.voiceRooms.get(user.roomId);
+                                if (room && room.hostUsername === user.username && !room.participants.has(room.hostSocketId)) {
+                                    console.log(`Voice host ${user.username} did not return, destroying room`);
+                                    this.io.to(user.roomId).emit('voice-stopped', { roomId: user.roomId });
+                                    this.voiceRooms.delete(user.roomId);
+                                    this.io.to(user.roomId).emit('voice-state', { active: false, roomId: user.roomId, participantCount: 0 });
+                                }
+                            }, 15000);
+
+                            // Notify participants that host is temporarily gone
+                            this.io.to(user.roomId).emit('voice-state', {
+                                active: true,
+                                roomId: user.roomId,
+                                hostSocketId: null, // Host temporarily disconnected
+                                participantCount: voiceRoom.participants.size,
+                                hostReconnecting: true
+                            });
                         } else {
                             // Participant disconnected
                             voiceRoom.participants.delete(socket.id);
@@ -788,6 +991,7 @@ class FileServer {
                                 socketId: socket.id,
                                 username: user.username
                             });
+                            this.broadcastVoiceState(user.roomId);
                         }
                     }
 
@@ -795,6 +999,22 @@ class FileServer {
                     this.io.to(user.roomId).emit('presence-update', getPresenceList(user.roomId));
                 }
             });
+        });
+    }
+
+    // Helper to broadcast full voice state
+    broadcastVoiceState(roomId) {
+        const voiceRoom = this.voiceRooms.get(roomId);
+        if (!voiceRoom) return;
+
+        this.io.to(roomId).emit('voice-state', {
+            active: true,
+            roomId,
+            hostSocketId: voiceRoom.hostSocketId,
+            participantCount: voiceRoom.participants.size,
+            locked: voiceRoom.locked,
+            mutedAll: voiceRoom.mutedAll,
+            participants: Array.from(voiceRoom.participants)
         });
     }
 
