@@ -744,7 +744,7 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
                 {/* Preview Modal */}
                 <Dialog open={!!previewPath} onOpenChange={(open) => !open && setPreviewPath(null)}>
                     <DialogContent
-                        className="max-w-[95vw] w-full h-[90vh] p-0 border-0 bg-black/95 backdrop-blur-xl rounded-2xl overflow-hidden shadow-2xl flex flex-col focus:outline-none z-[100]"
+                        className="max-w-[95vw] w-full h-[90vh] p-0 border-0 bg-black/95 backdrop-blur-xl rounded-2xl overflow-hidden shadow-2xl flex flex-col focus:outline-none z-[100] text-slate-200"
                     >
                         <DialogTitle className="sr-only">Preview</DialogTitle>
                         <DialogDescription className="sr-only">Media Preview</DialogDescription>
@@ -812,7 +812,7 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
                         </div>
 
                         {/* Content */}
-                        <div className="flex-1 flex flex-col min-h-0 relative w-full bg-white">
+                        <div className="flex-1 flex flex-col min-h-0 relative w-full bg-transparent">
                             {previewPath && (() => {
                                 const { isVideo, isImage, isAudio, isPdf, isEbook, isText, isJson } = getFileType(previewPath);
                                 const encodedPath = encodeURIComponent(previewPath);

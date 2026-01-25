@@ -815,16 +815,16 @@ class FileServer extends EventEmitter {
                 if (!user) return;
 
                 // Support both old (string) and new (object) format
-                const text = typeof data === 'string' ? data : data.text;
+                const text = typeof data === 'string' ? data : (data.text || '');
                 const replyTo = typeof data === 'object' ? data.replyTo : null;
                 const attachments = typeof data === 'object' ? data.attachments : null;
 
-                if (!text || !text.trim()) return;
-
                 // Limit attachments to 5
                 const validAttachments = attachments && Array.isArray(attachments)
-                    ? attachments.slice(0, 5)
+                    ? attachments.filter(a => a).slice(0, 5) // Simple filter for nulls
                     : null;
+
+                if ((!text || !text.trim()) && (!validAttachments || validAttachments.length === 0)) return;
 
                 const id = this.chatStore.saveMessage(
                     user.roomId,

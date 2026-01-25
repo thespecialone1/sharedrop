@@ -96,15 +96,21 @@ const ChatSidebar = ({
     const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
     const [activeReactionId, setActiveReactionId] = useState<string | null>(null);
     const [showMediaPicker, setShowMediaPicker] = useState(false);
+    const [pendingSticker, setPendingSticker] = useState<string | null>(null);
 
-    useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages]);
-
-    // Auto-focus input when sidebar opens
     useEffect(() => {
         if (isOpen) {
-            setTimeout(() => inputRef.current?.focus(), 100);
+            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }
+    }, [messages, isOpen]);
+
+    // Auto-focus input and scroll to bottom when sidebar opens
+    useEffect(() => {
+        if (isOpen) {
+            setTimeout(() => {
+                inputRef.current?.focus();
+                messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+            }, 100);
         }
     }, [isOpen]);
 
@@ -123,14 +129,21 @@ const ChatSidebar = ({
     };
 
     const handleSubmit = () => {
-        if (!chatInput.trim() && linkedImages.length === 0) return;
+        if (!chatInput.trim() && linkedImages.length === 0 && !pendingSticker) return;
+
+        const attachments = [...linkedImages];
+        if (pendingSticker) {
+            attachments.push(pendingSticker);
+        }
+
         onSendMessage({
             text: chatInput.trim(),
             replyTo: replyTo?.id || null,
-            attachments: linkedImages.length > 0 ? linkedImages : null
+            attachments: attachments.length > 0 ? attachments : null
         });
         setChatInput('');
         setReplyTo(null);
+        setPendingSticker(null);
         onClearLinkedImages?.();
         // Keep focus after sending
         inputRef.current?.focus();
@@ -265,7 +278,7 @@ const ChatSidebar = ({
                                         )}
 
                                         {/* Message bubble */}
-                                        <div className="relative w-full" style={{ maxWidth: '85%' }}>
+                                        <div className="relative w-full" style={{ maxWidth: '70%' }}>
                                             <div
                                                 className={`
                                                     text-sm px-3 py-2 rounded-2xl w-fit
@@ -280,9 +293,9 @@ const ChatSidebar = ({
                                                         {m.attachments.map((path, i) => (
                                                             <img
                                                                 key={i}
-                                                                src={`/api/preview?path=${encodeURIComponent(path)}`}
+                                                                src={path.startsWith('http') || path.startsWith('data:') ? path : `/api/preview?path=${encodeURIComponent(path)}`}
                                                                 alt=""
-                                                                className="w-12 h-12 object-cover rounded cursor-pointer hover:opacity-80"
+                                                                className="w-full max-w-[200px] h-auto object-contain rounded cursor-pointer hover:opacity-90"
                                                                 onClick={() => onImageClick?.(path)}
                                                             />
                                                         ))}
@@ -290,29 +303,36 @@ const ChatSidebar = ({
                                                 )}
                                             </div>
 
-                                            {/* Action buttons (visible on hover) - grey icons like Instagram */}
-                                            <div className={`absolute top-0 ${isOwn ? 'left-0 -translate-x-full pr-1' : 'right-0 translate-x-full pl-1'} opacity-0 group-hover:opacity-100 flex gap-0.5`}>
+                                            {/* Action buttons (visible on hover) */}
+                                            <div
+                                                className={`
+                                                    absolute top-1 z-20 flex gap-0.5
+                                                    ${isOwn ? 'right-full mr-1' : 'left-full ml-1'}
+                                                    opacity-0 group-hover:opacity-100 transition-opacity bg-white/80 backdrop-blur-sm rounded-lg p-0.5 shadow-sm border border-slate-100
+                                                `}
+                                                style={{ minWidth: 'max-content' }}
+                                            >
                                                 <button
-                                                    className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600"
+                                                    className="p-1 hover:bg-white rounded hover:text-blue-600 text-slate-400"
                                                     onClick={() => setReplyTo(m)}
                                                     title="Reply"
                                                 >
-                                                    <Reply size={12} />
+                                                    <Reply size={14} />
                                                 </button>
                                                 <button
-                                                    className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600"
+                                                    className="p-1 hover:bg-white rounded hover:text-yellow-600 text-slate-400"
                                                     onClick={() => setActiveReactionId(activeReactionId === m.id ? null : m.id)}
                                                     title="React"
                                                 >
-                                                    <Smile size={12} />
+                                                    <Smile size={14} />
                                                 </button>
                                                 {isOwn && onDeleteMessage && (
                                                     <button
-                                                        className="p-1 hover:bg-red-50 rounded text-slate-400 hover:text-red-500"
+                                                        className="p-1 hover:bg-white rounded hover:text-red-600 text-slate-400"
                                                         onClick={() => onDeleteMessage(m.id)}
                                                         title="Delete for me"
                                                     >
-                                                        <Trash2 size={12} />
+                                                        <Trash2 size={14} />
                                                     </button>
                                                 )}
                                             </div>
@@ -400,6 +420,24 @@ const ChatSidebar = ({
                         </div>
                     )}
 
+                    {/* Pending Sticker Preview */}
+                    {pendingSticker && (
+                        <div className="flex-shrink-0 px-3 py-2 bg-purple-50 border-t border-purple-100 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <Smile size={12} className="text-purple-500" />
+                                <span className="text-[10px] text-purple-600 font-medium">Sticker selected</span>
+                                <img
+                                    src={pendingSticker}
+                                    alt="Sticker"
+                                    className="h-8 w-auto object-contain rounded"
+                                />
+                            </div>
+                            <button className="text-purple-400 hover:text-purple-600" onClick={() => setPendingSticker(null)}>
+                                <X size={14} />
+                            </button>
+                        </div>
+                    )}
+
 
 
                     {/* Input Area - Rich Media Pill */}
@@ -416,7 +454,7 @@ const ChatSidebar = ({
                             <div className="absolute bottom-[80px] left-4 shadow-2xl z-[70]">
                                 <MediaPicker
                                     onSelect={(url, type) => {
-                                        onSendMessage({ text: '', attachments: [url] });
+                                        setPendingSticker(url);
                                         setShowMediaPicker(false);
                                     }}
                                     onClose={() => setShowMediaPicker(false)}
@@ -430,7 +468,7 @@ const ChatSidebar = ({
                                 <input
                                     ref={inputRef}
                                     className="w-full bg-transparent border-none focus:ring-0 outline-none p-0 text-sm text-slate-800 placeholder:text-slate-500 max-h-32 overflow-y-auto resize-none"
-                                    placeholder={linkedImages.length > 0 ? "Add a comment..." : "Type a message..."}
+                                    placeholder={(linkedImages.length > 0 || pendingSticker) ? "Add a caption..." : "Type a message..."}
                                     value={chatInput}
                                     onChange={(e) => setChatInput(e.target.value)}
                                     onKeyDown={(e) => {
@@ -453,12 +491,13 @@ const ChatSidebar = ({
                                     <Smile size={20} />
                                 </Button>
                                 <Button
+                                    type="button"
                                     size="icon"
-                                    className={`h-8 w-8 rounded-full ${(!chatInput.trim() && linkedImages.length === 0) ? 'bg-slate-300' : 'bg-blue-600 hover:bg-blue-700'} text-white transition-colors`}
+                                    className={`h-8 w-8 rounded-full ${(!chatInput.trim() && linkedImages.length === 0 && !pendingSticker) ? 'bg-slate-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'} text-white transition-colors`}
                                     onClick={(e) => { e.preventDefault(); handleSubmit(); }}
-                                    disabled={!chatInput.trim() && linkedImages.length === 0}
+                                    disabled={!chatInput.trim() && linkedImages.length === 0 && !pendingSticker}
                                 >
-                                    <Send size={16} className={(!chatInput.trim() && linkedImages.length === 0) ? 'ml-0' : 'ml-0.5'} />
+                                    <Send size={16} className={(!chatInput.trim() && linkedImages.length === 0 && !pendingSticker) ? 'ml-0' : 'ml-0.5'} />
                                 </Button>
                             </div>
                         </div>
