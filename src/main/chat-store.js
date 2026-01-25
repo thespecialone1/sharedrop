@@ -133,6 +133,14 @@ class ChatStore {
         return result.changes > 0;
     }
 
+    deleteMessage(messageId) {
+        // Delete reactions first
+        this.db.prepare('DELETE FROM reactions WHERE message_id = ?').run(messageId);
+        const stmt = this.db.prepare('DELETE FROM messages WHERE message_id = ?');
+        const result = stmt.run(messageId);
+        return result.changes > 0;
+    }
+
     getReactions(messageId) {
         const stmt = this.db.prepare(
             'SELECT emoji, GROUP_CONCAT(username) as users FROM reactions WHERE message_id = ? GROUP BY emoji'

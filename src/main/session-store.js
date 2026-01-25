@@ -152,6 +152,57 @@ class SessionStore {
             usersInvolved: JSON.parse(row.users_involved || '[]')
         };
     }
+
+    // --- Global Ban Management ---
+
+    ensureGlobalBansTable() {
+        this.db.exec(`
+            CREATE TABLE IF NOT EXISTS global_bans (
+                canonical_username TEXT PRIMARY KEY,
+                reason TEXT,
+                banned_at INTEGER,
+                banned_by TEXT
+            )
+        `);
+    }
+
+    addGlobalBan(canonicalUsername, reason = 'Banned by owner', bannedBy = 'owner') {
+        this.ensureGlobalBansTable();
+        const stmt = this.db.prepare(`
+            INSERT OR REPLACE INTO global_bans (canonical_username, reason, banned_at, banned_by)
+            VALUES (?, ?, ?, ?)
+        `);
+        stmt.run(canonicalUsername, reason, Date.now(), bannedBy);
+    }
+
+    removeGlobalBan(canonicalUsername) {
+        this.ensureGlobalBansTable();
+        const stmt = this.db.prepare('DELETE FROM global_bans WHERE canonical_username = ?');
+        stmt.run(canonicalUsername);
+    }
+
+    isGloballyBanned(canonicalUsername) {
+        this.ensureGlobalBansTable();
+        const stmt = this.db.prepare('SELECT * FROM global_bans WHERE canonical_username = ?');
+        return !!stmt.get(canonicalUsername);
+    }
+
+    getGlobalBannedUser(canonicalUsername) {
+        this.ensureGlobalBansTable();
+        const stmt = this.db.prepare('SELECT * FROM global_bans WHERE canonical_username = ?');
+        return stmt.get(canonicalUsername);
+    }
+
+    getAllGlobalBans() {
+        this.ensureGlobalBansTable();
+        const stmt = this.db.prepare('SELECT * FROM global_bans');
+        return stmt.all().map(row => ({
+            username: row.canonical_username,
+            reason: row.reason,
+            bannedAt: row.banned_at,
+            bannedBy: row.banned_by
+        }));
+    }
 }
 
 export default SessionStore;

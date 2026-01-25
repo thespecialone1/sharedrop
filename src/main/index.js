@@ -175,6 +175,14 @@ ipcMain.handle('deploy-session', async (_, sessionId) => {
       chatStore,
       sessionStore
     });
+
+    // Bridge events from FileServer to Renderer
+    activeFileServer.on('members-update', (data) => {
+      if (mainWindow) {
+        mainWindow.webContents.send('session:members', data);
+      }
+    });
+
     const port = await activeFileServer.start();
 
     // Start tunnel
@@ -196,10 +204,6 @@ ipcMain.handle('deploy-session', async (_, sessionId) => {
     };
   } catch (error) {
     console.error('Deploy error:', error.message);
-    // Capture error to Sentry with context
-    console.error('Deploy error:', error.message);
-    // [REMOVED] Sentry capture
-    await stopActiveSession();
     await stopActiveSession();
     isDeploying = false;
     return { success: false, error: error.message };
@@ -304,6 +308,59 @@ ipcMain.handle('open-external', async (_, url) => {
   } catch (e) {
     return { success: false, error: e.message };
   }
+});
+
+// --- Owner Session Controls ---
+
+ipcMain.handle('owner-kick', async (_, { sessionId, socketId, reason }) => {
+  if (activeSessionId !== sessionId || !activeFileServer) return { success: false, error: 'Session not active' };
+  const result = activeFileServer.kickUser(socketId, reason);
+  return { success: result };
+});
+
+ipcMain.handle('owner-ban', async (_, { sessionId, canonicalUsername, reason, scope }) => {
+  if (activeSessionId !== sessionId || !activeFileServer) return { success: false, error: 'Session not active' };
+
+  if (scope === 'global') {
+    sessionStore.addGlobalBan(canonicalUsername, reason);
+    // Also kick/ban from current session to immediate effect
+    activeFileServer.banUser(canonicalUsername, reason);
+    return { success: true };
+  } else {
+    const result = activeFileServer.banUser(canonicalUsername, reason);
+    return { success: result };
+  }
+});
+
+ipcMain.handle('owner-unban', async (_, { sessionId, canonicalUsername, scope }) => {
+  if (activeSessionId !== sessionId || !activeFileServer) return { success: false, error: 'Session not active' };
+
+  if (scope === 'global') {
+    sessionStore.removeGlobalBan(canonicalUsername);
+    // Also unban from session just in case
+    activeFileServer.unbanUser(canonicalUsername);
+    return { success: true };
+  } else {
+    const result = activeFileServer.unbanUser(canonicalUsername);
+    return { success: result };
+  }
+});
+
+ipcMain.handle('owner-get-bans', async (_, { sessionId }) => {
+  if (activeSessionId !== sessionId || !activeFileServer) return { success: false, error: 'Session not active' };
+
+  const sessionBans = activeFileServer.getBannedUsers ? activeFileServer.getBannedUsers() : { sessionBans: [], tempKicked: [] };
+  // Also get global bans
+  const globalBans = sessionStore.getAllGlobalBans ? sessionStore.getAllGlobalBans() : [];
+
+  return {
+    success: true,
+    bans: {
+      session: sessionBans.sessionBans || [],
+      tempKicked: sessionBans.tempKicked || [],
+      global: globalBans
+    }
+  };
 });
 
 // Get app version

@@ -74,6 +74,21 @@ export interface IElectronAPI {
 
     // App info
     getAppVersion: () => Promise<string>;
+
+    // Session Control (Owner)
+    onSessionMembersUpdate: (callback: (data: {
+        roomId: string; members: Array<{
+            username: string;
+            canonicalUsername: string;
+            color: string;
+            joinedAt: string;
+            socketId: string;
+        }>
+    }) => void) => void;
+    kickUser: (sessionId: string, socketId: string, reason?: string) => Promise<{ success: boolean; error?: string }>;
+    banUser: (sessionId: string, canonicalUsername: string, reason?: string, scope?: 'session' | 'global') => Promise<{ success: boolean; error?: string }>;
+    unbanUser: (sessionId: string, canonicalUsername: string, scope?: 'session' | 'global') => Promise<{ success: boolean; error?: string }>;
+    getBannedUsers: (sessionId: string) => Promise<{ success: boolean; bans?: { session: string[]; tempKicked: string[]; global: any[] }; error?: string }>;
 }
 
 declare global {

@@ -19,5 +19,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openExternal: (url) => ipcRenderer.invoke('open-external', url),
 
     // App info
-    getAppVersion: () => ipcRenderer.invoke('get-app-version')
+    getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+
+    // Session Control (Owner)
+    onSessionMembersUpdate: (callback) => ipcRenderer.on('session:members', (_, data) => callback(data)),
+    kickUser: (sessionId, socketId, reason) => ipcRenderer.invoke('owner-kick', { sessionId, socketId, reason }),
+    banUser: (sessionId, canonicalUsername, reason, scope) => ipcRenderer.invoke('owner-ban', { sessionId, canonicalUsername, reason, scope }),
+    unbanUser: (sessionId, canonicalUsername, scope) => ipcRenderer.invoke('owner-unban', { sessionId, canonicalUsername, scope }),
+    getBannedUsers: (sessionId) => ipcRenderer.invoke('owner-get-bans', { sessionId })
 });

@@ -11,8 +11,21 @@ import ChatStore from './chat-store.js';
 import SessionStore from './session-store.js';
 import { generateZip } from './zip.js';
 import { spawn } from 'child_process';
+import { EventEmitter } from 'events';
 
 import ffmpegPath from 'ffmpeg-static';
+import { exec } from 'child_process';
+
+const EBOOK_CONVERT_BIN = process.env.CALIBRE_BIN_PATH || 'ebook-convert';
+let hasEbookConvert = false;
+exec(`${EBOOK_CONVERT_BIN} --version`, (err) => {
+    if (!err) {
+        hasEbookConvert = true;
+        console.log('ebook-convert (Calibre) is available for MOBI conversion.');
+    } else {
+        console.log('ebook-convert (Calibre) not found. MOBI preview will be disabled.');
+    }
+});
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -70,8 +83,9 @@ const isHiddenSystemFile = (filename) => {
     return HIDDEN_FILE_PATTERNS.some(pattern => pattern.test(filename));
 };
 
-class FileServer {
+class FileServer extends EventEmitter {
     constructor(sharedPath, password, sessionId = null, stores = {}) {
+        super();
         this.sharedPath = sharedPath;
         this.password = password;
         // Use sessionId if provided, otherwise derive from path (for backwards compatibility)
@@ -92,6 +106,10 @@ class FileServer {
         // Voice room state: Map<roomId, { hostSocketId, participants: Set<socketId> }>
         this.voiceRooms = new Map();
 
+        // Session Control State
+        this.sessionBans = new Set(); // Set<canonicalUsername>
+        this.tempKickedUsers = new Set(); // Set<canonicalUsername>
+
         // Track HTTP connections
         this.server.on('connection', (socket) => {
             this.activeSockets.add(socket);
@@ -102,6 +120,76 @@ class FileServer {
         this.setupRoutes();
         this.setupFrontend();
         this.setupSockets();
+    }
+
+    emitMembersUpdate(roomId = this.roomId) {
+        const members = Array.from(this.activeUsers.values())
+            .filter(u => u.roomId === roomId)
+            .map(u => ({
+                username: u.username,
+                canonicalUsername: u.canonicalUsername,
+                color: u.color,
+                joinedAt: u.joinedAt,
+                socketId: u.socketId // Active socket ID
+            }));
+
+        // Emit locally for Main Process to pick up
+        this.emit('members-update', { roomId, members });
+        // Broadcast to owner if they are listening via socket? No, owner uses IPC. Active users don't need full list usually?
+        // Actually, let's broadcast to the room too so everyone sees who is there (optional, but good for transparency)
+        this.io.to(roomId).emit('session:members', { members });
+    }
+
+    kickUser(socketId, reason = 'Kicked by owner') {
+        const user = this.activeUsers.get(socketId);
+        if (!user) return false;
+
+        const socket = Array.from(this.activeSockets).find(s => s.id === socketId);
+        if (socket) {
+            socket.emit('session:kicked', { reason, scope: 'session' });
+            socket.disconnect(true);
+        }
+
+        // Add to temp kicked (cleared on server restart)
+        this.tempKickedUsers.add(user.canonicalUsername);
+
+        this.activeUsers.delete(socketId);
+        this.emitMembersUpdate(user.roomId);
+        return true;
+    }
+
+    banUser(canonicalUsername, reason = 'Banned by owner') {
+        this.sessionBans.add(canonicalUsername);
+
+        // Find and kick all active sockets for this user
+        for (const [socketId, user] of this.activeUsers.entries()) {
+            if (user.canonicalUsername === canonicalUsername) {
+                const socket = Array.from(this.activeSockets).find(s => s.id === socketId);
+                if (socket) {
+                    socket.emit('session:kicked', { reason, scope: 'session' });
+                    socket.disconnect(true);
+                }
+                this.activeUsers.delete(socketId);
+            }
+        }
+        this.emitMembersUpdate();
+        return true;
+    }
+
+    unbanUser(canonicalUsername) {
+        this.sessionBans.delete(canonicalUsername);
+        this.tempKickedUsers.delete(canonicalUsername);
+        // Also check global bans if we want to support unbanning global via session UI?
+        // For now, assume this is session-scope unban.
+        this.emitMembersUpdate();
+        return true;
+    }
+
+    getBannedUsers() {
+        return {
+            sessionBans: Array.from(this.sessionBans),
+            tempKicked: Array.from(this.tempKickedUsers)
+        };
     }
 
     setupMiddleware() {
@@ -128,15 +216,15 @@ class FileServer {
             // Production mode - ensure dist exists
             const distPath = path.join(__dirname, '../../dist');
             const indexPath = path.join(distPath, 'index.html');
-            if (!fs.existsSync(indexPath)) {
+            if (fs.existsSync(indexPath)) {
+                this.app.use(express.static(distPath));
+                this.app.get('*', (req, res) => {
+                    if (req.path.startsWith('/api/') || req.path.startsWith('/socket.io/')) return res.status(404).send('Not Found');
+                    res.sendFile(indexPath);
+                });
+            } else {
                 console.error('Production build not found at:', distPath);
-                throw new Error('Production build not found. Run "npm run build" first.');
             }
-            this.app.use(express.static(distPath));
-            this.app.get('*', (req, res) => {
-                if (req.path.startsWith('/api/') || req.path.startsWith('/socket.io/')) return res.status(404).send('Not Found');
-                res.sendFile(indexPath);
-            });
         }
     }
 
@@ -149,9 +237,36 @@ class FileServer {
         });
 
         const requireAuth = (req, res, next) => {
-            if (req.session.authenticated) next();
-            else res.status(401).json({ error: 'Unauthorized' });
+            // Allow certain read-only auth/room checks without full validation
+            if (req.originalUrl.startsWith('/api/auth') || req.originalUrl.startsWith('/api/room')) {
+                return next();
+            }
+
+            if (req.session.authenticated) {
+                // Check bans
+                if (req.session.username) {
+                    const canonicalName = req.session.username.toLowerCase();
+                    if (this.sessionBans.has(canonicalName) || this.tempKickedUsers.has(canonicalName)) {
+                        return res.status(403).json({ error: 'Access Denied: You have been kicked or banned.' });
+                    }
+                    if (this.sessionStore && this.sessionStore.isGloballyBanned(canonicalName)) {
+                        return res.status(403).json({ error: 'Access Denied: Global Ban.' });
+                    }
+                }
+                return next();
+            }
+            res.status(401).json({ error: 'Unauthorized' });
         };
+
+        // endpoint to bind username to session for ban enforcement
+        this.app.post('/api/register-client', requireAuth, (req, res) => {
+            const { username } = req.body;
+            if (username) {
+                req.session.username = username;
+                req.session.save();
+            }
+            res.json({ success: true });
+        });
 
         const requireOwner = (req, res, next) => {
             const ownerPassword = req.headers['x-owner-password'];
@@ -244,6 +359,113 @@ class FileServer {
             if (!fs.existsSync(fullPath)) {
                 return res.set('Content-Type', 'image/jpeg').send(PLACEHOLDER_JPG);
             }
+
+            // --- Enhanced Preview Handling (Ebooks, Text, JSON) ---
+            const format = req.query.format; // epub, mobi, text, json, auto
+
+            // EPUB - Serve directly
+            if (ext === '.epub' || format === 'epub') {
+                res.set('Content-Type', 'application/epub+zip');
+                return res.sendFile(fullPath);
+            }
+
+            // MOBI - Convert to EPUB
+            if (ext === '.mobi' || format === 'mobi') {
+                if (!hasEbookConvert) {
+                    return res.status(501).json({
+                        error: 'MOBI conversion unavailable. Server lacks Calibre (ebook-convert).',
+                        downloadUrl: `/api/file?path=${encodeURIComponent(req.query.path)}`
+                    });
+                }
+
+                const cacheKey = getCacheKey(fullPath) + '.epub';
+                const cachePath = path.join(CACHE_DIR, cacheKey);
+
+                // Serve cached if ready
+                if (fs.existsSync(cachePath)) {
+                    res.set('Content-Type', 'application/epub+zip');
+                    return res.sendFile(cachePath);
+                }
+
+                // Check if conversion is already in progress (simple lock via temp file existence or memory?)
+                // For simplicity, we'll just try to convert. Concurrent requests might be wasteful but safe enough for V1.
+                // Better: return 202 Accepted or stream 
+                // Client expects a URL. If we return 202, client needs to poll. 
+                // The PLAN says: "Conversion should be async: show spinner and poll conversion status"
+                // For this endpoint, if we want to blocking-wait or return immediately?
+                // Let's implement a "check or start" logic.
+
+                // If not exist, start conversion and return 202
+                // We'll use a .lock file to signal in-progress
+                const lockFile = cachePath + '.lock';
+                if (fs.existsSync(lockFile)) {
+                    // Check if lock is stale (> 5 mins)
+                    const stats = fs.statSync(lockFile);
+                    if (Date.now() - stats.mtimeMs > 5 * 60 * 1000) {
+                        fs.unlinkSync(lockFile); // Remove stale lock
+                    } else {
+                        return res.status(202).json({ status: 'converting' });
+                    }
+                }
+
+                // Start conversion
+                fs.writeFileSync(lockFile, 'locked');
+                console.log(`Starting conversion: ${filename} -> EPUB`);
+
+                exec(`${EBOOK_CONVERT_BIN} "${fullPath}" "${cachePath}"`, (err, stdout, stderr) => {
+                    try { fs.unlinkSync(lockFile); } catch { }
+                    if (err) {
+                        console.error('MOBI conversion failed:', stderr);
+                        // We can't reply to the original request if we already returned 202? 
+                        // Actually we haven't returned yet if we are waiting? 
+                        // If we want async polling, we MUST return 202 now.
+                    } else {
+                        console.log('MOBI conversion success:', cachePath);
+                    }
+                });
+
+                return res.status(202).json({ status: 'converting' });
+            }
+
+            // TEXT - Serve with range support / plain text
+            if (ext === '.txt' || format === 'text') {
+                const stat = fs.statSync(fullPath);
+                // Cap size for safety if no range? Client should handle ranges.
+                // But for simple "preview", let's just stream it.
+                res.set('Content-Type', 'text/plain; charset=utf-8');
+                return fs.createReadStream(fullPath).pipe(res);
+            }
+
+            // JSON - Serve raw or pretty
+            if (ext === '.json' || format === 'json') {
+                // Determine size
+                const stat = fs.statSync(fullPath);
+                const PREVIEW_MAX_BYTES = process.env.PREVIEW_MAX_BYTES || 5 * 1024 * 1024; // 5MB limit for full parse
+
+                if (stat.size > PREVIEW_MAX_BYTES && req.query.pretty) {
+                    return res.status(413).json({
+                        error: 'File too large for server-side pretty print.',
+                        downloadUrl: `/api/file?path=${encodeURIComponent(req.query.path)}`
+                    });
+                }
+
+                if (req.query.pretty) {
+                    try {
+                        const content = fs.readFileSync(fullPath, 'utf8');
+                        const json = JSON.parse(content);
+                        return res.json(json); // Express auto-prettifies based on env or we can force it
+                    } catch (e) {
+                        // Fallback to raw if invalid json
+                        res.set('Content-Type', 'application/json');
+                        return fs.createReadStream(fullPath).pipe(res);
+                    }
+                } else {
+                    res.set('Content-Type', 'application/json');
+                    return fs.createReadStream(fullPath).pipe(res);
+                }
+            }
+
+            // --- End Enhanced Preview ---
 
             try {
                 const cacheKey = getCacheKey(fullPath);
@@ -407,6 +629,14 @@ class FileServer {
 
     ffmpegPreview(fullPath, cacheKey, res) {
         res.set('Content-Type', 'image/jpeg');
+
+        // Safety: Only attempt FFmpeg on supported video/image types
+        const ext = path.extname(fullPath).toLowerCase();
+        const supported = ['.mp4', '.mov', '.webm', '.avi', '.mkv', '.m4v', '.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.tiff'];
+        if (!supported.includes(ext)) {
+            return res.send(PLACEHOLDER_JPG);
+        }
+
         let finished = false;
 
         const ffmpeg = spawn(ffmpegPath, [
@@ -494,19 +724,60 @@ class FileServer {
                 if (cb) cb({ available });
             });
 
-            socket.on('join-session', ({ username, color, roomId }) => {
+            socket.on('join-session', async ({ username, color, roomId }) => {
                 const room = roomId || this.roomId;
-                this.activeUsers.set(socket.id, { username, color, roomId: room });
+                const canonicalName = (username || '').trim().toLowerCase();
+
+                // 1. Validate Input
+                if (!canonicalName || canonicalName.length < 2) {
+                    return socket.emit('join-error', { code: 'INVALID_NAME', message: 'Name too short' });
+                }
+
+                // 2. Check Bans
+                if (this.sessionBans.has(canonicalName)) {
+                    return socket.emit('join-error', { code: 'BANNED', message: 'You are banned from this session.' });
+                }
+                if (this.sessionStore && this.sessionStore.isGloballyBanned(canonicalName)) {
+                    const banInfo = this.sessionStore.getGlobalBannedUser(canonicalName);
+                    return socket.emit('join-error', { code: 'BANNED', message: banInfo?.reason || 'You are globally banned.' });
+                }
+                if (this.tempKickedUsers.has(canonicalName)) {
+                    return socket.emit('join-error', { code: 'KICKED', message: 'You were kicked from this session.' });
+                }
+
+                // 3. Check Uniqueness
+                const isTaken = Array.from(this.activeUsers.values()).some(u => u.roomId === room && u.canonicalUsername === canonicalName);
+                if (isTaken) {
+                    return socket.emit('join-error', { code: 'USERNAME_TAKEN', message: 'Name already taken.' });
+                }
+
+                // 4. Success - Register User
+                const userObj = {
+                    username: username.trim(), // Keep original casing for display if possible, but we use canonical for logic
+                    canonicalUsername: canonicalName,
+                    color,
+                    roomId: room,
+                    socketId: socket.id,
+                    joinedAt: new Date().toISOString()
+                };
+
+                this.activeUsers.set(socket.id, userObj);
                 socket.join(room);
+
+                // Init notification preferences (default enabled)
+                socket.notificationOptOut = false;
 
                 // Track user in session for owner dashboard
                 if (this.sessionId) {
                     try {
-                        this.sessionStore.addUserToSession(this.sessionId, username);
+                        this.sessionStore.addUserToSession(this.sessionId, userObj.username);
                     } catch (e) {
                         console.error('Error tracking user:', e.message);
                     }
                 }
+
+                // Emit updates
+                this.emitMembersUpdate(room);
 
                 const history = this.chatStore.getRoomMessages(room, 100).map(m => ({
                     id: String(m.id),
@@ -519,6 +790,11 @@ class FileServer {
                     reactions: m.reactions || {}
                 }));
                 socket.emit('chat-history', history);
+
+                // Legacy presence update (keep for guest compatibility if needed)
+                const getPresenceList = (roomId) => Array.from(this.activeUsers.values())
+                    .filter(u => u.roomId === roomId)
+                    .map(u => u.username);
                 this.io.to(room).emit('presence-update', getPresenceList(room));
 
                 // Sync voice room status if one is active
@@ -569,6 +845,15 @@ class FileServer {
                     attachments: validAttachments,
                     reactions: {}
                 };
+                // Notification: New Message
+                socket.to(user.roomId).emit('notification:new-message', {
+                    sessionId: user.roomId,
+                    messageId: String(id),
+                    from: { username: user.username, color: user.color },
+                    preview: text ? text.substring(0, 100) : (validAttachments ? 'Sent an attachment' : ''),
+                    sentAt: new Date().toISOString()
+                });
+
                 socket.to(user.roomId).emit('chat-message', msg);
                 if (cb) cb({ success: true, id: String(id) });
             });
@@ -584,6 +869,15 @@ class FileServer {
                     this.io.to(user.roomId).emit('reaction-update', {
                         messageId: String(messageId),
                         reactions
+                    });
+
+                    // Notification: Reaction
+                    socket.to(user.roomId).emit('notification:reaction', {
+                        sessionId: user.roomId,
+                        messageId: String(messageId),
+                        by: { socketId: socket.id, username: user.username },
+                        type: emoji,
+                        sentAt: new Date().toISOString()
                     });
                 }
                 if (cb) cb({ success });
@@ -601,6 +895,26 @@ class FileServer {
                         messageId: String(messageId),
                         reactions
                     });
+                }
+                if (cb) cb({ success });
+            });
+
+            // Delete message
+            socket.on('delete-message', ({ messageId }, cb) => {
+                const user = this.activeUsers.get(socket.id);
+                if (!user || !messageId) return;
+
+                const msg = this.chatStore.getMessage(parseInt(messageId));
+                if (!msg) return cb && cb({ success: false, error: 'Message not found' });
+
+                // Only allow sender to delete (or owner logic if we had it, but strict sender is safe)
+                if (msg.username !== user.username) {
+                    return cb && cb({ success: false, error: 'Unauthorized' });
+                }
+
+                const success = this.chatStore.deleteMessage(parseInt(messageId));
+                if (success) {
+                    this.io.to(user.roomId).emit('message-deleted', { messageId: String(messageId) });
                 }
                 if (cb) cb({ success });
             });
@@ -639,6 +953,15 @@ class FileServer {
                         hostUsername: user.username,
                         participantCount: existingRoom.participants.size
                     });
+
+                    // Notification: Voice Started (Resumed)
+                    this.io.to(room).emit('notification:voice-started', {
+                        sessionId: room,
+                        host: { socketId: socket.id, username: user.username },
+                        startedAt: new Date().toISOString(),
+                        isResume: true
+                    });
+
                     this.broadcastVoiceState(room);
                     return;
                 }
@@ -666,6 +989,13 @@ class FileServer {
                     hostUsername: user.username
                 });
 
+                // Notification: Voice Started
+                this.io.to(room).emit('notification:voice-started', {
+                    sessionId: room,
+                    host: { socketId: socket.id, username: user.username },
+                    startedAt: new Date(this.voiceRooms.get(room).startTime).toISOString()
+                });
+
                 this.broadcastVoiceState(room);
 
                 cb?.({ success: true, hostSocketId: socket.id });
@@ -691,6 +1021,13 @@ class FileServer {
 
                 // Notify all users and delete room
                 this.io.to(room).emit('voice-stopped', { roomId: room });
+
+                // Notification: Voice Ended
+                this.io.to(room).emit('notification:voice-ended', {
+                    sessionId: room,
+                    endedAt: new Date().toISOString()
+                });
+
                 this.voiceRooms.delete(room);
 
                 // Broadcast empty/inactive state or just let the stopped event handle it?
@@ -735,9 +1072,16 @@ class FileServer {
                     // Notify everyone that host is back/updated
                     this.io.to(room).emit('voice-started', {
                         roomId: room,
-                        hostSocketId: socket.id,
                         hostUsername: user.username,
                         participantCount: voiceRoom.participants.size + 1
+                    });
+
+                    // Notification: Voice Started (Host Re-join via Join)
+                    this.io.to(room).emit('notification:voice-started', {
+                        sessionId: room,
+                        host: { socketId: socket.id, username: user.username },
+                        startedAt: new Date().toISOString(),
+                        isResume: true
                     });
                 }
 
@@ -783,6 +1127,13 @@ class FileServer {
                 if (voiceRoom.hostSocketId === socket.id) {
                     console.log(`Host ${user.username} left, stopping voice room in ${room}`);
                     this.io.to(room).emit('voice-stopped', { roomId: room });
+
+                    // Notification: Voice Ended
+                    this.io.to(room).emit('notification:voice-ended', {
+                        sessionId: room,
+                        endedAt: new Date().toISOString()
+                    });
+
                     this.voiceRooms.delete(room);
                     this.io.to(room).emit('voice-state', { active: false, roomId: room, participantCount: 0 });
                 } else {
@@ -996,7 +1347,15 @@ class FileServer {
                     }
 
                     this.activeUsers.delete(socket.id);
-                    this.io.to(user.roomId).emit('presence-update', getPresenceList(user.roomId));
+                    // Legacy presence update
+                    const room = user.roomId; // user object is still valid here
+                    const getPresenceList = (roomId) => Array.from(this.activeUsers.values())
+                        .filter(u => u.roomId === roomId)
+                        .map(u => u.username);
+                    this.io.to(room).emit('presence-update', getPresenceList(room));
+
+                    // New Roster update
+                    this.emitMembersUpdate(room);
                 }
             });
         });
