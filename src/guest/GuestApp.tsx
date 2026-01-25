@@ -17,6 +17,13 @@ import SimpleVideoPlayer from './components/VideoPlayer';
 import StatsTags from './components/StatsTags';
 import { useVoiceRoom } from './hooks/useVoiceRoom';
 import AudioElements from './components/AudioElements';
+import { useNotifications } from './hooks/useNotifications';
+import { NotificationLayer } from './components/NotificationLayer';
+import { AudioPlayer } from './components/AudioPlayer';
+
+const EpubViewer = React.lazy(() => import('./components/viewers/EpubViewer').then(m => ({ default: m.EpubViewer })));
+const TextViewer = React.lazy(() => import('./components/viewers/TextViewer').then(m => ({ default: m.TextViewer })));
+const JsonViewer = React.lazy(() => import('./components/viewers/JsonViewer').then(m => ({ default: m.JsonViewer })));
 
 function useDebounce<T>(value: T, delay: number): T {
     const [debouncedValue, setDebouncedValue] = useState<T>(value);
@@ -60,7 +67,15 @@ const GuestApp = () => {
     const [error, setError] = useState('');
 
     useEffect(() => {
-        if (roomId && username) localStorage.setItem(`sharedrop_username_${roomId}`, username);
+        if (roomId && username) {
+            localStorage.setItem(`sharedrop_username_${roomId}`, username);
+            // Register username with server session for ban enforcement
+            fetch('/api/register-client', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username })
+            });
+        }
     }, [roomId, username]);
 
     const handleAuth = async (e: React.FormEvent) => {
@@ -108,7 +123,7 @@ const GuestApp = () => {
                     </div>
                     <Input
                         type="password"
-                        className="h-11 rounded-xl border-slate-200 bg-slate-50 text-center text-lg tracking-[0.25em] focus-visible:ring-blue-500 focus-visible:ring-2"
+                        className="h-11 bg-slate-50 text-center text-lg tracking-[0.25em]"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         placeholder="••••••••"
@@ -153,6 +168,14 @@ const UsernameSelection = ({ roomId, onSelect }: { roomId: string, onSelect: (na
                 setIsAvailable(res.available);
                 setIsValidating(false);
             });
+
+            // Listen for global join errors here too just in case
+            socketRef.current?.on('join-error', (err: { code: string, message: string }) => {
+                if (err.code === 'BANNED' || err.code === 'KICKED') {
+                    alert(err.message);
+                    setIsAvailable(false);
+                }
+            });
         }, 500);
         return () => clearTimeout(t);
     }, [name, roomId]);
@@ -165,7 +188,7 @@ const UsernameSelection = ({ roomId, onSelect }: { roomId: string, onSelect: (na
                     <p className="text-sm text-slate-500">Choose your display name</p>
                 </div>
                 <Input
-                    className="h-11 rounded-xl border-slate-200 bg-slate-50 text-center text-base focus-visible:ring-blue-500 focus-visible:ring-2"
+                    className="h-11 bg-slate-50 text-center text-base"
                     value={name}
                     onChange={(e) => setName(e.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12))}
                     onPaste={(e) => {
@@ -205,6 +228,8 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
     const [previewPath, setPreviewPath] = useState<string | null>(null);
+    const [viewerSnapshot, setViewerSnapshot] = useState<SessionItem[]>([]);
+    const [viewerIndex, setViewerIndex] = useState<number>(-1);
 
     const [users, setUsers] = useState<string[]>([]);
     const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -217,21 +242,84 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
     // Voice room hook
     const voiceRoom = useVoiceRoom(socketRef.current, mySocketId);
 
+    // Notification hook
+    const notifications = useNotifications(socketRef.current, roomId, username);
+
+    // Request permissions on mount/interaction
+    useEffect(() => {
+        const handleClick = () => notifications.requestPermission();
+        window.addEventListener('click', handleClick, { once: true });
+        return () => window.removeEventListener('click', handleClick);
+    }, [notifications]);
+
+    // Handle new message notifications dependent on specific UI state
+    useEffect(() => {
+        if (!socketRef.current) return;
+
+        const handleNewMsg = (data: any) => {
+            const { from, preview, sessionId } = data;
+            // Don't notify if we are the sender (should be filtered by server actually, but safety first)
+            if (from.username === username) return;
+
+            // If sidebar is CLOSED, show toast
+            if (!isSidebarOpen) {
+                notifications.setHasUnreadMessages(true);
+                notifications.addToast({
+                    title: from.username,
+                    message: preview || 'Sent a message',
+                    type: 'info',
+                    action: () => setIsSidebarOpen(true)
+                });
+                // Also trigger system notification if visible but sidebar closed? 
+                // Maybe overkill if user is looking at the screen?
+                // Spec says: "If chat panel... NOT open ... show in-app toast"
+            }
+        };
+
+        socketRef.current.on('notification:new-message', handleNewMsg);
+
+        socketRef.current.on('message-deleted', ({ messageId }: { messageId: string }) => {
+            setMessages(prev => prev.filter(m => m.id !== messageId));
+        });
+
+        return () => {
+            socketRef.current?.off('notification:new-message', handleNewMsg);
+            socketRef.current?.off('message-deleted');
+        };
+    }, [isSidebarOpen, username, notifications]);
+
+    const handleDeleteMessage = (messageId: string) => {
+        if (!socketRef.current) return;
+        socketRef.current.emit('delete-message', { messageId }, (res: any) => {
+            if (!res.success) alert(res.error || 'Failed to delete message');
+        });
+    };
+
     const debouncedSearch = useDebounce(searchTerm, 300);
 
     const filteredItems = activeFilters.size > 0 ? items.filter(i => {
-        const { isImage, isVideo } = isImageOrVideo(i.name);
+        const { isImage, isVideo, isEbook, isText, isJson, isPdf, isAudio } = getFileType(i.name);
         return (
             (activeFilters.has('folders') && i.isDirectory) ||
             (activeFilters.has('images') && isImage) ||
             (activeFilters.has('videos') && isVideo) ||
-            (activeFilters.has('others') && !i.isDirectory && !isImage && !isVideo)
+            (activeFilters.has('others') && !i.isDirectory && !isImage && !isVideo && !isEbook && !isText && !isJson && !isPdf && !isAudio)
         );
     }) : items;
 
     const handleNavigate = useCallback((direction: number) => {
         if (!previewPath) return;
-        const previewableItems = filteredItems.filter(i => !i.isDirectory);
+
+        // Use snapshot list if available, else fallback (though snapshot should be set)
+        const currentList = viewerSnapshot.length > 0 ? viewerSnapshot : filteredItems;
+
+        // Filter for any potentially previewable item (including audio/pdf now)
+        const previewableItems = currentList.filter(i => {
+            if (i.isDirectory) return false;
+            const { canPreview, isVideo, isAudio, isPdf, isEbook, isText, isJson } = getFileType(i.name);
+            return canPreview || isVideo || isAudio || isPdf || isEbook || isText || isJson;
+        });
+
         const currentIndex = previewableItems.findIndex(i =>
             (currentPath ? `${currentPath}/${i.name}` : i.name) === previewPath
         );
@@ -243,7 +331,16 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
 
         const next = previewableItems[nextIndex];
         setPreviewPath(currentPath ? `${currentPath}/${next.name}` : next.name);
-    }, [previewPath, filteredItems, currentPath]);
+    }, [previewPath, viewerSnapshot, filteredItems, currentPath]);
+
+    // Snapshot keys
+    useEffect(() => {
+        if (previewPath && viewerSnapshot.length === 0) {
+            setViewerSnapshot(filteredItems);
+        } else if (!previewPath) {
+            setViewerSnapshot([]);
+        }
+    }, [previewPath, filteredItems, viewerSnapshot.length]);
 
     const onFilterToggle = (key: string) => {
         setActiveFilters(prev => {
@@ -300,6 +397,14 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
             setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions } : m));
         });
 
+        // Handle Kick/Ban
+        socket.on('session:kicked', ({ reason, scope }: { reason: string, scope: string }) => {
+            localStorage.removeItem(`sharedrop_username_${roomId}`);
+            alert(reason || 'You have been kicked from the session.');
+            socket.disconnect();
+            window.location.reload();
+        });
+
         // Handle disconnect/reconnect for presence sync
         socket.on('disconnect', () => {
             console.log('Socket disconnected, will reconnect...');
@@ -326,8 +431,11 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
     useEffect(() => { fetchItems(); setSelectedPaths([]); }, [currentPath, debouncedSearch, sortBy]);
 
     const handleSendMessage = (data: { text: string; replyTo?: string | null; attachments?: string[] | null }) => {
-        if (!data.text?.trim() && (!data.attachments || data.attachments.length === 0)) return;
-        socketRef.current?.emit('send-message', data, (res: { success: boolean, id: string }) => {
+        const validAttachments = data.attachments?.filter(a => a && a.trim().length > 0) || [];
+        if (!data.text?.trim() && validAttachments.length === 0) return;
+
+        const payload = { ...data, attachments: validAttachments.length > 0 ? validAttachments : null };
+        socketRef.current?.emit('send-message', payload, (res: { success: boolean, id: string }) => {
             if (res.success) {
                 setMessages(prev => [...prev, {
                     id: res.id,
@@ -419,18 +527,23 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
             {/* Chat Sidebar */}
             <ChatSidebar
                 isOpen={isSidebarOpen}
-                onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
+                onToggle={() => {
+                    if (!isSidebarOpen) notifications.setHasUnreadMessages(false);
+                    setIsSidebarOpen(!isSidebarOpen);
+                }}
                 messages={messages}
                 users={users}
                 username={username || 'Guest'}
                 typingUser={typingUser}
                 onSendMessage={handleSendMessage}
+                onDeleteMessage={handleDeleteMessage}
                 chatInput={chatInput}
                 setChatInput={(val: string) => { setChatInput(val); socketRef.current?.emit('typing', val.length > 0); }}
                 onReact={handleReact}
                 linkedImages={linkedImages}
                 onClearLinkedImages={() => setLinkedImages([])}
                 onImageClick={(path) => setPreviewPath(path)}
+
                 voiceRoom={{
                     isActive: voiceRoom.isActive,
                     isInVoice: voiceRoom.isInVoice,
@@ -460,6 +573,19 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
                 lastBroadcastReaction={voiceRoom.lastBroadcastReaction}
             />
 
+            <NotificationLayer
+                toasts={notifications.toasts}
+                voiceBanner={notifications.voiceBanner}
+                onDismissToast={notifications.dismissToast}
+                onDismissBanner={notifications.dismissVoiceBanner}
+                onJoinVoice={() => {
+                    notifications.dismissVoiceBanner();
+                    setIsSidebarOpen(true);
+                    // Slight delay to allow sidebar to open and socket events to sync
+                    setTimeout(() => voiceRoom.joinVoice(), 100);
+                }}
+            />
+
             {/* Audio elements for remote voice streams */}
             <AudioElements streams={voiceRoom.remoteStreams} />
 
@@ -475,10 +601,19 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
                             <Button
                                 variant="outline"
                                 size="icon"
-                                className="rounded-xl h-10 w-10 border-slate-200 hover:bg-slate-50"
-                                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                                className="rounded-xl h-10 w-10 border-slate-200 hover:bg-slate-50 relative"
+                                onClick={() => {
+                                    if (!isSidebarOpen) notifications.setHasUnreadMessages(false);
+                                    setIsSidebarOpen(!isSidebarOpen);
+                                }}
                             >
                                 <MessageCircle size={18} className="text-slate-600" />
+                                {notifications.hasUnreadMessages && (
+                                    <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                                        <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                                    </span>
+                                )}
                             </Button>
 
                             {currentPath && (
@@ -576,43 +711,40 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
                 </main>
 
                 {/* Selection toolbar */}
-                {selectedPaths.length > 0 && (
-                    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-6 py-3 rounded-2xl shadow-2xl z-50 flex items-center gap-4 animate-in slide-in-from-bottom-4">
-                        <span className="text-sm"><strong>{selectedPaths.length}</strong> selected</span>
-                        {/* Attach to Chat - only for images, max 5 */}
-                        {selectedPaths.filter(p => /\.(jpg|jpeg|png|webp|gif)$/i.test(p)).length > 0 && (
-                            <Button
-                                className="bg-blue-500 text-white hover:bg-blue-600 rounded-xl h-9 px-4 text-sm font-medium"
-                                onClick={() => {
-                                    const imagePaths = selectedPaths.filter(p => /\.(jpg|jpeg|png|webp|gif)$/i.test(p)).slice(0, 5);
-                                    setLinkedImages(imagePaths);
-                                    setIsSidebarOpen(true);
-                                    setSelectedPaths([]);
-                                }}
-                            >
-                                <Link2 size={14} className="mr-2" />
-                                Attach to Chat ({Math.min(selectedPaths.filter(p => /\.(jpg|jpeg|png|webp|gif)$/i.test(p)).length, 5)})
+                {
+                    selectedPaths.length > 0 && (
+                        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-6 py-3 rounded-2xl shadow-2xl z-50 flex items-center gap-4 animate-in slide-in-from-bottom-4">
+                            <span className="text-sm"><strong>{selectedPaths.length}</strong> selected</span>
+                            {/* Attach to Chat - only for images, max 5 */}
+                            {selectedPaths.filter(p => /\.(jpg|jpeg|png|webp|gif)$/i.test(p)).length > 0 && (
+                                <Button
+                                    className="bg-blue-500 text-white hover:bg-blue-600 rounded-xl h-9 px-4 text-sm font-medium"
+                                    onClick={() => {
+                                        const imagePaths = selectedPaths.filter(p => /\.(jpg|jpeg|png|webp|gif)$/i.test(p)).slice(0, 5);
+                                        setLinkedImages(imagePaths);
+                                        setIsSidebarOpen(true);
+                                        setSelectedPaths([]);
+                                    }}
+                                >
+                                    <Link2 size={14} className="mr-2" />
+                                    Attach to Chat ({Math.min(selectedPaths.filter(p => /\.(jpg|jpeg|png|webp|gif)$/i.test(p)).length, 5)})
+                                </Button>
+                            )}
+                            <Button className="bg-white text-slate-900 hover:bg-slate-100 rounded-xl h-9 px-4 text-sm font-medium" onClick={downloadSelection}>
+                                <Download size={14} className="mr-2" />
+                                {selectedPaths.length === 1 ? 'Download' : 'ZIP'}
                             </Button>
-                        )}
-                        <Button className="bg-white text-slate-900 hover:bg-slate-100 rounded-xl h-9 px-4 text-sm font-medium" onClick={downloadSelection}>
-                            <Download size={14} className="mr-2" />
-                            {selectedPaths.length === 1 ? 'Download' : 'ZIP'}
-                        </Button>
-                        <Button variant="ghost" size="icon" className="text-slate-400 hover:text-white h-8 w-8" onClick={() => setSelectedPaths([])}>
-                            <X size={16} />
-                        </Button>
-                    </div>
-                )}
+                            <Button variant="ghost" size="icon" className="text-slate-400 hover:text-white h-8 w-8" onClick={() => setSelectedPaths([])}>
+                                <X size={16} />
+                            </Button>
+                        </div>
+                    )
+                }
 
                 {/* Preview Modal */}
                 <Dialog open={!!previewPath} onOpenChange={(open) => !open && setPreviewPath(null)}>
                     <DialogContent
-                        className="max-w-[95vw] w-full max-h-[95vh] p-0 border-0 bg-black/95 backdrop-blur-xl rounded-2xl overflow-hidden shadow-2xl flex flex-col focus:outline-none z-[100]"
-                        onKeyDown={(e) => {
-                            if (e.key === 'ArrowRight') { e.preventDefault(); handleNavigate(1); }
-                            if (e.key === 'ArrowLeft') { e.preventDefault(); handleNavigate(-1); }
-                            if (e.key === 'Escape') { e.preventDefault(); setPreviewPath(null); }
-                        }}
+                        className="max-w-[95vw] w-full h-[90vh] p-0 border-0 bg-black/95 backdrop-blur-xl rounded-2xl overflow-hidden shadow-2xl flex flex-col focus:outline-none z-[100]"
                     >
                         <DialogTitle className="sr-only">Preview</DialogTitle>
                         <DialogDescription className="sr-only">Media Preview</DialogDescription>
@@ -632,36 +764,38 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
                         </div>
 
                         {/* Image action buttons */}
-                        {previewPath && /\.(jpg|jpeg|png|webp|heic|dng|raw|arw|gif|svg|bmp)$/i.test(previewPath) && (
-                            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-50 flex gap-2">
+                        {/* Improved Overlay Controls (Moved to Top Center to avoid Player Controls) */}
+                        {previewPath && !/\.pdf$/i.test(previewPath) && !/\.mp3$/i.test(previewPath) && !/\.(epub|mobi|txt|md|log|json|xml|yml)$/i.test(previewPath) && (
+                            <div className="absolute top-6 left-1/2 -translate-x-1/2 z-[120] flex items-center gap-1 p-1 rounded-full bg-slate-900/50 backdrop-blur-md shadow-xl border border-white/10 transition-opacity duration-200">
                                 <Button
-                                    variant="secondary"
+                                    variant="ghost"
                                     size="icon"
-                                    className="rounded-xl bg-white/20 hover:bg-white/40 text-white h-10 w-10"
+                                    className="h-8 w-8 text-white hover:bg-white/20 rounded-full"
+                                    onClick={() => window.open(`/api/stream?path=${encodeURIComponent(previewPath!)}`)}
+                                    title="Open Full"
+                                >
+                                    <Maximize2 size={14} />
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-white hover:bg-white/20 rounded-full"
                                     onClick={() => window.open(`/api/file?path=${encodeURIComponent(previewPath!)}`)}
                                     title="Download"
                                 >
-                                    <Download size={18} />
+                                    <Download size={14} />
                                 </Button>
-                                <Button
-                                    variant="secondary"
-                                    size="icon"
-                                    className="rounded-xl bg-white/20 hover:bg-white/40 text-white h-10 w-10"
-                                    onClick={() => window.open(`/api/stream?path=${encodeURIComponent(previewPath!)}`)}
-                                    title="Full size"
-                                >
-                                    <Maximize2 size={18} />
-                                </Button>
-                                <Button
-                                    variant="secondary"
-                                    size="icon"
-                                    className={`rounded-xl h-10 w-10 ${linkedImages.includes(previewPath!) ? 'bg-blue-500 text-white' : 'bg-white/20 hover:bg-white/40 text-white'}`}
-                                    onClick={() => handleLinkImage(previewPath!)}
-                                    title={linkedImages.includes(previewPath!) ? 'Linked' : 'Link to chat'}
-                                    disabled={linkedImages.length >= 5 && !linkedImages.includes(previewPath!)}
-                                >
-                                    <Link2 size={18} />
-                                </Button>
+                                {(/\.(jpg|jpeg|png|webp|gif)$/i.test(previewPath)) && (
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className={`h-8 w-8 rounded-full ${linkedImages.includes(previewPath!) ? 'text-blue-400 bg-white/10' : 'text-white hover:bg-white/20'}`}
+                                        onClick={() => handleLinkImage(previewPath!)}
+                                        title="Attach to Chat"
+                                    >
+                                        <Link2 size={14} />
+                                    </Button>
+                                )}
                             </div>
                         )}
 
@@ -678,50 +812,120 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
                         </div>
 
                         {/* Content */}
-                        <div className="flex-1 flex items-center justify-center p-4">
+                        <div className="flex-1 flex flex-col min-h-0 relative w-full bg-white">
                             {previewPath && (() => {
-                                const isVid = /\.(mp4|mov|webm|mkv|avi|m4v)$/i.test(previewPath);
-                                const isImg = /\.(jpg|jpeg|png|webp|heic|dng|raw|arw|gif|svg|bmp)$/i.test(previewPath);
+                                const { isVideo, isImage, isAudio, isPdf, isEbook, isText, isJson } = getFileType(previewPath);
+                                const encodedPath = encodeURIComponent(previewPath);
+                                const streamUrl = `/api/stream?path=${encodedPath}`;
 
-                                if (isVid) return (
-                                    <div className="w-full max-w-4xl h-full flex items-center justify-center">
-                                        <SimpleVideoPlayer
-                                            src={`/api/stream?path=${encodeURIComponent(previewPath)}`}
-                                            poster={`/api/preview?path=${encodeURIComponent(previewPath)}`}
-                                            onNext={() => handleNavigate(1)}
-                                            onPrev={() => handleNavigate(-1)}
-                                            onClose={() => setPreviewPath(null)}
+                                if (isEbook) return (
+                                    <React.Suspense fallback={<div className="text-white">Loading Viewer...</div>}>
+                                        <div className="w-full h-full bg-white relative">
+                                            <EpubViewer
+                                                path={previewPath}
+                                                onClose={() => setPreviewPath(null)}
+                                            />
+                                        </div>
+                                    </React.Suspense>
+                                );
+
+                                if (isText) return (
+                                    <React.Suspense fallback={<div className="text-white">Loading Viewer...</div>}>
+                                        <div className="w-full h-full bg-white relative">
+                                            <TextViewer
+                                                path={previewPath}
+                                                onClose={() => setPreviewPath(null)}
+                                            />
+                                        </div>
+                                    </React.Suspense>
+                                );
+
+                                if (isJson) return (
+                                    <React.Suspense fallback={<div className="flex items-center justify-center h-full">Loading Viewer...</div>}>
+                                        <div className="w-full h-full bg-white relative">
+                                            <JsonViewer
+                                                path={previewPath}
+                                                onClose={() => setPreviewPath(null)}
+                                            />
+                                        </div>
+                                    </React.Suspense>
+                                );
+
+                                if (isVideo) return (
+                                    <div className="w-full h-full flex items-center justify-center p-4">
+                                        <div className="w-full max-w-5xl max-h-full flex items-center justify-center">
+                                            <SimpleVideoPlayer
+                                                src={streamUrl}
+                                                poster={`/api/preview?path=${encodedPath}`}
+                                                onNext={() => handleNavigate(1)}
+                                                onPrev={() => handleNavigate(-1)}
+                                                onClose={() => setPreviewPath(null)}
+                                            />
+                                        </div>
+                                    </div>
+                                );
+
+                                if (isAudio) return (
+                                    <div className="w-full h-full flex items-center justify-center p-4">
+                                        <div className="w-full max-w-md">
+                                            <AudioPlayer
+                                                src={streamUrl}
+                                                title={previewPath.split('/').pop() || 'Audio'}
+                                                path={previewPath!}
+                                                onNext={() => handleNavigate(1)}
+                                                onPrev={() => handleNavigate(-1)}
+                                            />
+                                        </div>
+                                    </div>
+                                );
+
+                                if (isPdf) return (
+                                    <div className="w-full h-full flex items-center justify-center p-4">
+                                        <div className="w-full h-[85vh] max-w-6xl bg-white rounded-xl overflow-hidden shadow-2xl relative group">
+                                            <object data={streamUrl} type="application/pdf" className="w-full h-full">
+                                                <div className="flex flex-col items-center justify-center h-full gap-4 text-slate-500 bg-slate-50">
+                                                    <FileText size={48} />
+                                                    <p>PDF preview not supported in this browser.</p>
+                                                    <Button onClick={() => window.open(streamUrl)}>Download PDF</Button>
+                                                </div>
+                                            </object>
+                                        </div>
+                                    </div>
+                                );
+
+                                if (isImage) return (
+                                    <div className="w-full h-full flex items-center justify-center p-4">
+                                        <img
+                                            src={streamUrl}
+                                            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+                                            alt=""
                                         />
                                     </div>
                                 );
-                                if (isImg) return (
-                                    <img
-                                        src={`/api/stream?path=${encodeURIComponent(previewPath)}`}
-                                        className="max-w-full max-h-[85vh] object-contain rounded-lg"
-                                        alt=""
-                                    />
-                                );
+
                                 return (
-                                    <div className="text-white/50 flex flex-col items-center gap-3">
-                                        <FileText size={48} />
-                                        <p className="text-base font-medium">Preview unavailable</p>
-                                        <Button variant="outline" onClick={() => window.open(`/api/file?path=${encodeURIComponent(previewPath)}`)}>
-                                            Download
-                                        </Button>
+                                    <div className="w-full h-full flex items-center justify-center p-4">
+                                        <div className="text-slate-400 flex flex-col items-center gap-3">
+                                            <FileText size={48} />
+                                            <p className="text-base font-medium">Preview unavailable</p>
+                                            <Button variant="outline" onClick={() => window.open(`/api/file?path=${encodedPath}`)}>
+                                                Download
+                                            </Button>
+                                        </div>
                                     </div>
                                 );
                             })()}
                         </div>
                     </DialogContent>
                 </Dialog>
-            </div>
-        </div>
+            </div >
+        </div >
     );
 };
 
 // File card component
 const FileCard = ({ item, currentPath, onNavigate, selected, onToggle, onLongPress, isFocused, onPreview, onLink, linkedImages }: any) => {
-    const { isImage, isVideo, canPreview, ext } = isImageOrVideo(item.name);
+    const { isImage, isVideo, canPreview, ext, isEbook, isText, isJson } = getFileType(item.name);
     const p = currentPath ? `${currentPath}/${item.name}` : item.name;
     const longPressRef = useRef<number | null>(null);
 
@@ -748,7 +952,7 @@ const FileCard = ({ item, currentPath, onNavigate, selected, onToggle, onLongPre
                     <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-amber-50 to-orange-50">
                         <Folder size={48} className="text-amber-500 fill-amber-200" />
                     </div>
-                ) : (canPreview || isVideo) ? (
+                ) : (isImage || isVideo) ? (
                     <>
                         <img
                             src={`/api/preview?path=${encodeURIComponent(p)}`}
@@ -765,7 +969,7 @@ const FileCard = ({ item, currentPath, onNavigate, selected, onToggle, onLongPre
                         )}
                     </>
                 ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center text-slate-300 gap-1 bg-slate-50">
+                    <div className={`w-full h-full flex flex-col items-center justify-center gap-1 ${ext === 'pdf' ? 'bg-red-50 text-red-400' : 'bg-slate-50 text-slate-300'}`}>
                         <FileText size={32} />
                         <span className="text-xs font-bold uppercase">.{ext}</span>
                     </div>
@@ -811,13 +1015,28 @@ const FileCard = ({ item, currentPath, onNavigate, selected, onToggle, onLongPre
     );
 };
 
-const isImageOrVideo = (name: string) => {
+const getFileType = (name: string) => {
     const ext = name.split('.').pop()?.toLowerCase() || '';
     const allImages = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'dng', 'gif', 'bmp', 'tiff', 'raw', 'cr2', 'nef', 'arw'];
     const supportedImages = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'heic', 'dng', 'raw', 'arw'];
     const allVideos = ['mp4', 'mov', 'webm', 'avi', 'mkv', 'm4v'];
+    const allAudio = ['mp3', 'wav', 'ogg', 'm4a', 'aac'];
+    const allPdf = ['pdf'];
+    const allEbooks = ['epub', 'mobi'];
+    const allText = ['txt', 'md', 'log', 'ini', 'cfg', 'conf', 'yml', 'yaml', 'xml'];
+    const allJson = ['json'];
 
-    return { isImage: allImages.includes(ext), isVideo: allVideos.includes(ext), canPreview: supportedImages.includes(ext), ext };
+    return {
+        isImage: allImages.includes(ext),
+        isVideo: allVideos.includes(ext),
+        isAudio: allAudio.includes(ext),
+        isPdf: allPdf.includes(ext),
+        isEbook: allEbooks.includes(ext),
+        isText: allText.includes(ext),
+        isJson: allJson.includes(ext),
+        canPreview: supportedImages.includes(ext) || allVideos.includes(ext) || allAudio.includes(ext) || allPdf.includes(ext) || allEbooks.includes(ext) || allText.includes(ext) || allJson.includes(ext),
+        ext
+    };
 };
 
 const SkeletonFeed = () => [...Array(12)].map((_, i) => (

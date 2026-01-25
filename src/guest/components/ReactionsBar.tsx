@@ -7,7 +7,11 @@ interface ReactionsBarProps {
     className?: string;
 }
 
-const REACTIONS = [
+type ReactionItem =
+    | { type: string; icon: LucideIcon; color: string; label: string }
+    | { type: string; image: string; label: string };
+
+const REACTIONS: ReactionItem[] = [
     { type: 'heart', icon: Heart, color: 'text-rose-500', label: 'Heart' },
     { type: 'like', icon: ThumbsUp, color: 'text-blue-500', label: 'Like' },
     { type: 'eyes', icon: Eye, color: 'text-emerald-500', label: 'Eyes' },

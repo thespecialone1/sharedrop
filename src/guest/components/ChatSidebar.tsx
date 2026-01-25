@@ -2,11 +2,12 @@ import React, { useRef, useEffect, useState } from 'react';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Send, X, Users, MessageCircle, Reply, Image as ImageIcon, Smile } from 'lucide-react';
+import { Send, X, Users, MessageCircle, Reply, Image as ImageIcon, Smile, Plus, Trash2, MoreHorizontal } from 'lucide-react';
 import { getPastelColor } from '../utils/color';
 import VoicePanel from './VoicePanel';
 import ParticipantList from './ParticipantList';
 import ReactionsBar from './ReactionsBar';
+import { MediaPicker } from './MediaPicker';
 
 const REACTION_EMOJIS = ['❤️', '😂', '😢', '😎', '😡', '👍', '👎'];
 
@@ -26,6 +27,7 @@ interface ChatSidebarProps {
     users: string[];
     typingUser: string | null;
     onSendMessage: (data: { text: string; replyTo?: string | null; attachments?: string[] | null }) => void;
+    onDeleteMessage?: (messageId: string) => void;
     isOpen: boolean;
     onToggle: () => void;
     username: string;
@@ -85,15 +87,33 @@ const ChatSidebar = ({
     mySocketId,
     onKickParticipant,
     onSendReaction,
-    lastBroadcastReaction
+    lastBroadcastReaction,
+    onDeleteMessage
 }: ChatSidebarProps) => {
+    const inputRef = useRef<HTMLInputElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
     const [activeReactionId, setActiveReactionId] = useState<string | null>(null);
+    const [showMediaPicker, setShowMediaPicker] = useState(false);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
+
+    // Auto-focus input when sidebar opens
+    useEffect(() => {
+        if (isOpen) {
+            setTimeout(() => inputRef.current?.focus(), 100);
+        }
+    }, [isOpen]);
+
+    // Auto-focus input when replying
+    useEffect(() => {
+        if (replyTo) {
+            inputRef.current?.focus();
+        }
+    }, [replyTo]);
 
     const handleSendReaction = (type: string) => {
         onSendReaction?.(type);
@@ -112,6 +132,8 @@ const ChatSidebar = ({
         setChatInput('');
         setReplyTo(null);
         onClearLinkedImages?.();
+        // Keep focus after sending
+        inputRef.current?.focus();
     };
 
     const getReplyMessage = (replyToId: string) => {
@@ -284,6 +306,15 @@ const ChatSidebar = ({
                                                 >
                                                     <Smile size={12} />
                                                 </button>
+                                                {isOwn && onDeleteMessage && (
+                                                    <button
+                                                        className="p-1 hover:bg-red-50 rounded text-slate-400 hover:text-red-500"
+                                                        onClick={() => onDeleteMessage(m.id)}
+                                                        title="Delete for me"
+                                                    >
+                                                        <Trash2 size={12} />
+                                                    </button>
+                                                )}
                                             </div>
 
                                             {/* Reaction picker - fixed positioning */}
@@ -371,30 +402,66 @@ const ChatSidebar = ({
 
 
 
-                    {/* Input */}
-                    <div className="flex-shrink-0 p-3 border-t border-slate-100 bg-slate-50">
+                    {/* Input Area - Rich Media Pill */}
+                    <div className="flex-shrink-0 p-3 bg-white border-t border-slate-50 relative z-50">
                         {/* Voice Reactions */}
                         {voiceRoom?.isInVoice && (
                             <div className="mb-2 flex justify-center">
                                 <ReactionsBar onReact={handleSendReaction} />
                             </div>
                         )}
-                        <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="flex gap-2">
-                            <Input
-                                value={chatInput}
-                                onChange={(e) => setChatInput(e.target.value)}
-                                placeholder={linkedImages.length > 0 ? "Add a comment..." : "Type a message..."}
-                                className="flex-1 h-10 rounded-xl border-slate-200 bg-white text-sm"
-                            />
-                            <Button
-                                type="submit"
-                                size="icon"
-                                disabled={!chatInput.trim() && linkedImages.length === 0}
-                                className="h-10 w-10 rounded-xl bg-blue-500 hover:bg-blue-600 disabled:opacity-40"
-                            >
-                                <Send size={14} className="text-white" />
-                            </Button>
-                        </form>
+
+                        {/* Media Picker Popover */}
+                        {showMediaPicker && (
+                            <div className="absolute bottom-[80px] left-4 shadow-2xl z-[70]">
+                                <MediaPicker
+                                    onSelect={(url, type) => {
+                                        onSendMessage({ text: '', attachments: [url] });
+                                        setShowMediaPicker(false);
+                                    }}
+                                    onClose={() => setShowMediaPicker(false)}
+                                />
+                            </div>
+                        )}
+
+                        <div className="bg-slate-100 rounded-[24px] p-2 flex items-end gap-2 shadow-inner border border-slate-200 focus-within:ring-2 focus-within:ring-blue-100 transition-all">
+                            {/* Standard Text Input - Transparent */}
+                            <div className="flex-1 min-w-0 py-1.5">
+                                <input
+                                    ref={inputRef}
+                                    className="w-full bg-transparent border-none focus:ring-0 outline-none p-0 text-sm text-slate-800 placeholder:text-slate-500 max-h-32 overflow-y-auto resize-none"
+                                    placeholder={linkedImages.length > 0 ? "Add a comment..." : "Type a message..."}
+                                    value={chatInput}
+                                    onChange={(e) => setChatInput(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && !e.shiftKey) {
+                                            e.preventDefault();
+                                            handleSubmit();
+                                        }
+                                    }}
+                                />
+                            </div>
+
+                            {/* Right Side Tools */}
+                            <div className="flex items-center gap-1 flex-shrink-0 mb-0.5">
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className={`h-8 w-8 rounded-full ${showMediaPicker ? 'bg-blue-100 text-blue-600' : 'text-slate-500 hover:bg-slate-200'}`}
+                                    onClick={() => setShowMediaPicker(!showMediaPicker)}
+                                >
+                                    <Smile size={20} />
+                                </Button>
+                                <Button
+                                    size="icon"
+                                    className={`h-8 w-8 rounded-full ${(!chatInput.trim() && linkedImages.length === 0) ? 'bg-slate-300' : 'bg-blue-600 hover:bg-blue-700'} text-white transition-colors`}
+                                    onClick={(e) => { e.preventDefault(); handleSubmit(); }}
+                                    disabled={!chatInput.trim() && linkedImages.length === 0}
+                                >
+                                    <Send size={16} className={(!chatInput.trim() && linkedImages.length === 0) ? 'ml-0' : 'ml-0.5'} />
+                                </Button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
