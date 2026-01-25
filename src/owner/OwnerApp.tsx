@@ -13,6 +13,9 @@ import {
     DropdownMenuTrigger,
     DropdownMenuSeparator
 } from '@/components/ui/dropdown-menu';
+import { SessionRoster, Member } from './components/SessionRoster';
+import { BannedUsersDialog } from './components/BannedUsersDialog';
+// import { toast } from 'sonner'; 
 
 interface Session {
     id: string;
@@ -43,14 +46,24 @@ const OwnerApp = () => {
     const [copiedLink, setCopiedLink] = useState(false);
     const [copiedPass, setCopiedPass] = useState(false);
     const [expandedId, setExpandedId] = useState<string | null>(null);
-    const [confirmDialog, setConfirmDialog] = useState<{ type: 'delete' | 'wipe' | null; sessionId: string | null }>({ type: null, sessionId: null });
+    const [confirmDialog, setConfirmDialog] = useState<{ type: 'delete' | 'wipe' | 'kick' | 'ban' | null; sessionId: string | null; targetMember?: Member; banScope?: 'session' | 'global' }>({ type: null, sessionId: null });
     const [appVersion, setAppVersion] = useState<string>('');
     const [deployError, setDeployError] = useState<string | null>(null);
+    const [sessionMembers, setSessionMembers] = useState<Member[]>([]);
+    const [showBans, setShowBans] = useState(false);
+
     useEffect(() => {
         loadSessions();
         loadActiveSession();
         // Load app version
         window.electronAPI.getAppVersion().then(setAppVersion);
+
+        // Listen for member updates
+        window.electronAPI.onSessionMembersUpdate((data: { roomId: string; members: Member[] }) => {
+            // Update only if it matches active session or just update state
+            // Ideally we check roomId against activeSession.sessionId but the event listener is global
+            setSessionMembers(data.members);
+        });
     }, []);
 
     const loadSessions = async () => {
@@ -142,6 +155,33 @@ const OwnerApp = () => {
         setIsLoading(false);
     };
 
+    const handleKickUser = async () => {
+        if (!activeSession?.sessionId || !confirmDialog.targetMember) return;
+        setIsLoading(true);
+        const result = await window.electronAPI.kickUser(activeSession.sessionId, confirmDialog.targetMember.socketId, 'Kicked by owner');
+        if (result.success) {
+            // toast.success('User kicked');
+        } else {
+            // toast.error('Failed to kick user');
+        }
+        setConfirmDialog({ type: null, sessionId: null });
+        setIsLoading(false);
+    };
+
+    const handleBanUser = async () => {
+        if (!activeSession?.sessionId || !confirmDialog.targetMember) return;
+        setIsLoading(true);
+        const result = await window.electronAPI.banUser(activeSession.sessionId, confirmDialog.targetMember.canonicalUsername, 'Banned by owner', confirmDialog.banScope);
+        if (result.success) {
+            // toast.success('User banned');
+        } else {
+            // toast.error('Failed to ban user');
+            alert('Failed to ban user');
+        }
+        setConfirmDialog({ type: null, sessionId: null });
+        setIsLoading(false);
+    };
+
     const copyToClipboard = (text: string, type: 'link' | 'pass') => {
         navigator.clipboard.writeText(text);
         if (type === 'link') { setCopiedLink(true); setTimeout(() => setCopiedLink(false), 2000); }
@@ -218,6 +258,10 @@ const OwnerApp = () => {
                                     Stop
                                 </Button>
                             </div>
+                            <Button variant="outline" className="w-full h-8 text-xs" onClick={() => setShowBans(true)}>
+                                <Users size={12} className="mr-1.5" />
+                                Manage Users
+                            </Button>
                         </div>
                     ) : (
                         <div className="flex-1 bg-white rounded-xl border border-slate-200 flex flex-col items-center justify-center p-6">
@@ -236,6 +280,16 @@ const OwnerApp = () => {
                                     <p className="text-[10px] text-red-500 mt-1">{deployError}</p>
                                 </div>
                             )}
+                        </div>
+                    )}
+
+                    {activeSession?.active && (
+                        <div className="flex-1 mt-4 overflow-hidden min-h-0">
+                            <SessionRoster
+                                members={sessionMembers}
+                                onKick={(m) => setConfirmDialog({ type: 'kick', sessionId: activeSession.sessionId!, targetMember: m })}
+                                onBan={(m, scope) => setConfirmDialog({ type: 'ban', sessionId: activeSession.sessionId!, targetMember: m, banScope: scope })}
+                            />
                         </div>
                     )}
                 </div>
@@ -321,12 +375,20 @@ const OwnerApp = () => {
                 <DialogContent className="max-w-[320px] rounded-xl">
                     <DialogHeader>
                         <DialogTitle className="text-base">
-                            {confirmDialog.type === 'delete' ? 'Delete Session?' : 'Wipe Chat?'}
+                            {confirmDialog.type === 'delete' ? 'Delete Session?'
+                                : confirmDialog.type === 'wipe' ? 'Wipe Chat?'
+                                    : confirmDialog.type === 'kick' ? 'Kick User?'
+                                        : confirmDialog.type === 'ban' ? 'Ban User?'
+                                            : 'Confirm Action'}
                         </DialogTitle>
                         <DialogDescription className="text-xs">
                             {confirmDialog.type === 'delete'
                                 ? 'This will permanently delete the session and all its chat history.'
-                                : 'This will permanently delete all messages in this session.'}
+                                : confirmDialog.type === 'wipe'
+                                    ? 'This will permanently delete all messages in this session.'
+                                    : confirmDialog.type === 'kick'
+                                        ? `Are you sure you want to kick ${confirmDialog.targetMember?.username}?`
+                                        : `Are you sure you want to ${confirmDialog.banScope} ban ${confirmDialog.targetMember?.username}?`}
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter className="gap-2">
@@ -340,6 +402,8 @@ const OwnerApp = () => {
                             onClick={() => {
                                 if (confirmDialog.type === 'delete' && confirmDialog.sessionId) handleDelete(confirmDialog.sessionId);
                                 else if (confirmDialog.type === 'wipe' && confirmDialog.sessionId) handleWipeChat(confirmDialog.sessionId);
+                                else if (confirmDialog.type === 'kick') handleKickUser();
+                                else if (confirmDialog.type === 'ban') handleBanUser();
                             }}
                             disabled={isLoading}
                         >
@@ -348,6 +412,15 @@ const OwnerApp = () => {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            <BannedUsersDialog
+                open={showBans}
+                onOpenChange={setShowBans}
+                sessionId={activeSession?.sessionId || ''}
+                onUnban={async (u, s) => {
+                    await window.electronAPI.unbanUser(activeSession?.sessionId!, u, s);
+                }}
+            />
 
             {/* Footer with version */}
             <footer className="flex-shrink-0 h-6 bg-slate-50 border-t border-slate-200 flex items-center justify-center">
