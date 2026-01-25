@@ -97,6 +97,7 @@ const ChatSidebar = ({
     const [activeReactionId, setActiveReactionId] = useState<string | null>(null);
     const [showMediaPicker, setShowMediaPicker] = useState(false);
     const [pendingSticker, setPendingSticker] = useState<string | null>(null);
+    const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
 
     useEffect(() => {
         if (isOpen) {
@@ -126,6 +127,15 @@ const ChatSidebar = ({
         // Local animation handled by global overlay reacting to server broadcast
         // Haptic feedback
         if (navigator.vibrate) navigator.vibrate(10);
+    };
+
+    const handleReplyClick = (messageId: string) => {
+        const element = document.getElementById(`message-${messageId}`);
+        if (element) {
+            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            setHighlightedMessageId(messageId);
+            setTimeout(() => setHighlightedMessageId(null), 2000);
+        }
     };
 
     const handleSubmit = () => {
@@ -166,16 +176,16 @@ const ChatSidebar = ({
             {/* Chat Panel */}
             <div className={`
                 fixed inset-y-0 left-0 z-[60] transition-transform duration-300 ease-out
-                bg-white shadow-2xl border-r border-slate-100
+                bg-bg shadow-2xl border-r border-border-custom
                 w-[85vw] sm:w-[25vw] sm:min-w-[320px] sm:max-w-[400px]
                 ${isOpen ? 'translate-x-0' : '-translate-x-full'}
             `}>
                 <div className="flex flex-col h-full">
                     {/* Header */}
-                    <div className="flex-shrink-0 px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                    <div className="flex-shrink-0 px-4 py-3 border-b border-border-custom flex items-center justify-between bg-surface-2">
                         <div className="flex items-center gap-2">
                             <MessageCircle size={18} className="text-blue-500" />
-                            <span className="font-semibold text-sm text-slate-800">Chat</span>
+                            <span className="font-semibold text-sm text-text-primary">Chat</span>
                         </div>
                         <div className="flex items-center gap-2">
                             {voiceRoom && (
@@ -211,7 +221,7 @@ const ChatSidebar = ({
 
                     {/* Participant List (Voice) */}
                     {voiceRoom?.isInVoice && (
-                        <div className="flex-shrink-0 px-3 py-2 border-b border-slate-100 bg-slate-50/50">
+                        <div className="flex-shrink-0 px-3 py-2 border-b border-border-custom bg-surface-2/50">
                             <div className="flex items-center gap-1.5 mb-1.5">
                                 <Users size={12} className="text-green-500" />
                                 <span className="text-[10px] font-semibold text-slate-500 uppercase">Voice Call</span>
@@ -227,7 +237,7 @@ const ChatSidebar = ({
                     )}
 
                     {/* Online users */}
-                    <div className="flex-shrink-0 px-3 py-2 border-b border-slate-100 bg-white">
+                    <div className="flex-shrink-0 px-3 py-2 border-b border-border-custom bg-bg">
                         <div className="flex items-center gap-1.5 mb-1.5">
                             <Users size={12} className="text-slate-400" />
                             <span className="text-[10px] font-semibold text-slate-500 uppercase">Online · {users.length}</span>
@@ -237,7 +247,7 @@ const ChatSidebar = ({
                                 <span
                                     key={i}
                                     className="text-[10px] font-medium px-1.5 py-0.5 rounded-md"
-                                    style={{ backgroundColor: getPastelColor(u), color: '#444' }}
+                                    style={{ backgroundColor: getPastelColor(u), color: 'var(--text-primary)' }}
                                 >
                                     {u === username ? 'You' : u}
                                 </span>
@@ -251,11 +261,13 @@ const ChatSidebar = ({
                             {messages.map((m) => {
                                 const replyMsg = m.replyTo ? getReplyMessage(m.replyTo) : null;
                                 const isOwn = m.sender === username;
+                                const isHighlighted = highlightedMessageId === m.id;
 
                                 return (
                                     <div
                                         key={m.id}
-                                        className={`group flex flex-col ${isOwn ? 'items-end' : 'items-start'}`}
+                                        id={`message-${m.id}`}
+                                        className={`group flex flex-col ${isOwn ? 'items-end' : 'items-start'} transition-colors duration-1000 ${isHighlighted ? 'bg-blue-50/50 -mx-3 px-3 py-1 rounded-lg' : ''}`}
                                     >
                                         {/* Sender info */}
                                         <div className="flex items-center gap-1 px-1 mb-0.5">
@@ -270,7 +282,10 @@ const ChatSidebar = ({
 
                                         {/* Reply preview - clean design */}
                                         {replyMsg && (
-                                            <div className="text-[10px] text-slate-500 bg-slate-50 px-2 py-1 rounded-lg mb-1 max-w-[85%] truncate border-l-2 border-blue-300">
+                                            <div
+                                                className="text-[10px] text-slate-500 bg-slate-50 px-2 py-1 rounded-lg mb-1 max-w-[85%] truncate border-l-2 border-blue-300 cursor-pointer hover:bg-blue-50 transition-colors"
+                                                onClick={() => handleReplyClick(m.replyTo!)}
+                                            >
                                                 <span className="font-medium text-blue-600">{replyMsg.sender}</span>
                                                 <span className="mx-1">·</span>
                                                 {replyMsg.text.slice(0, 40)}{replyMsg.text.length > 40 ? '...' : ''}
@@ -282,7 +297,7 @@ const ChatSidebar = ({
                                             <div
                                                 className={`
                                                     text-sm px-3 py-2 rounded-2xl w-fit
-                                                    ${isOwn ? 'bg-blue-500 text-white rounded-br-md ml-auto' : 'bg-slate-100 text-slate-800 rounded-bl-md'}
+                                                    ${isOwn ? 'bg-blue-500 text-white rounded-br-md ml-auto' : 'bg-surface-2 text-text-primary rounded-bl-md'}
                                                 `}
                                             >
                                                 {m.text}
@@ -308,12 +323,12 @@ const ChatSidebar = ({
                                                 className={`
                                                     absolute top-1 z-20 flex gap-0.5
                                                     ${isOwn ? 'right-full mr-1' : 'left-full ml-1'}
-                                                    opacity-0 group-hover:opacity-100 transition-opacity bg-white/80 backdrop-blur-sm rounded-lg p-0.5 shadow-sm border border-slate-100
+                                                    opacity-0 group-hover:opacity-100 transition-opacity bg-bg/80 backdrop-blur-sm rounded-lg p-0.5 shadow-sm border border-border-custom
                                                 `}
                                                 style={{ minWidth: 'max-content' }}
                                             >
                                                 <button
-                                                    className="p-1 hover:bg-white rounded hover:text-blue-600 text-slate-400"
+                                                    className="p-1 hover:bg-surface-1 rounded hover:text-primary-blue text-text-secondary"
                                                     onClick={() => setReplyTo(m)}
                                                     title="Reply"
                                                 >
@@ -340,7 +355,7 @@ const ChatSidebar = ({
                                             {/* Reaction picker - fixed positioning */}
                                             {activeReactionId === m.id && (
                                                 <div
-                                                    className={`absolute ${isOwn ? 'right-0' : 'left-0'} -bottom-8 bg-white border rounded-full shadow-lg px-2 py-1 flex gap-1 z-20`}
+                                                    className={`absolute ${isOwn ? 'right-0' : 'left-0'} -bottom-8 bg-bg border border-border-custom rounded-full shadow-lg px-2 py-1 flex gap-1 z-20`}
                                                     onMouseLeave={() => setTimeout(() => setActiveReactionId(null), 300)}
                                                 >
                                                     {REACTION_EMOJIS.map(emoji => (
@@ -441,7 +456,7 @@ const ChatSidebar = ({
 
 
                     {/* Input Area - Rich Media Pill */}
-                    <div className="flex-shrink-0 p-3 bg-white border-t border-slate-50 relative z-50">
+                    <div className="flex-shrink-0 p-3 bg-bg border-t border-border-custom relative z-50">
                         {/* Voice Reactions */}
                         {voiceRoom?.isInVoice && (
                             <div className="mb-2 flex justify-center">
@@ -462,7 +477,7 @@ const ChatSidebar = ({
                             </div>
                         )}
 
-                        <div className="bg-slate-100 rounded-[24px] p-2 flex items-end gap-2 shadow-inner border border-slate-200 focus-within:ring-2 focus-within:ring-blue-100 transition-all">
+                        <div className="bg-surface-2 rounded-[24px] p-2 flex items-end gap-2 shadow-inner border border-border-custom focus-within:ring-2 focus-within:ring-blue-100 transition-all">
                             {/* Standard Text Input - Transparent */}
                             <div className="flex-1 min-w-0 py-1.5">
                                 <input

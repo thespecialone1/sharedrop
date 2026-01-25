@@ -61,16 +61,16 @@ export const MediaPicker: React.FC<MediaPickerProps> = ({ onSelect, onClose }) =
     }, [activeTab, debouncedQuery]);
 
     return (
-        <div className="w-[350px] h-[450px] bg-white rounded-2xl shadow-xl border border-slate-100 flex flex-col overflow-hidden relative font-sans">
+        <div className="w-[350px] h-[450px] bg-bg rounded-2xl shadow-xl border border-border-custom flex flex-col overflow-hidden relative font-sans">
             {/* Header Section */}
-            <div className="flex-shrink-0 p-3 pb-0 space-y-3 bg-white z-10">
+            <div className="flex-shrink-0 p-3 pb-0 space-y-3 bg-bg z-10">
                 {/* Search Bar - Elevated Pill */}
                 <div className="relative group">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-slate-600 transition-colors" size={16} />
                     <input
                         type="text"
                         placeholder={activeTab === 'gifs' ? "Search GIFs" : "Search Stickers"}
-                        className="w-full h-10 bg-slate-100 rounded-full pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 focus:bg-white transition-all border border-transparent focus:border-blue-200 placeholder:text-slate-500"
+                        className="w-full h-10 bg-surface-2 rounded-full pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-blue-100 focus:bg-bg transition-all border border-transparent focus:border-blue-200 placeholder:text-text-secondary"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         autoFocus
@@ -83,7 +83,7 @@ export const MediaPicker: React.FC<MediaPickerProps> = ({ onSelect, onClose }) =
                         <button
                             className={cn(
                                 "flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap",
-                                !searchQuery ? "bg-slate-800 text-white" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+                                !searchQuery ? "bg-text-primary text-bg" : "bg-bg border border-border-custom text-text-secondary hover:bg-surface-2"
                             )}
                             onClick={() => setSearchQuery('')}
                         >
@@ -92,7 +92,7 @@ export const MediaPicker: React.FC<MediaPickerProps> = ({ onSelect, onClose }) =
                         {categories.map(cat => (
                             <button
                                 key={cat.id}
-                                className="flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-colors whitespace-nowrap"
+                                className="flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium bg-bg border border-border-custom text-text-secondary hover:bg-surface-2 hover:border-border-custom transition-colors whitespace-nowrap"
                                 onClick={() => setSearchQuery(cat.id)}
                             >
                                 {cat.label}
@@ -100,12 +100,12 @@ export const MediaPicker: React.FC<MediaPickerProps> = ({ onSelect, onClose }) =
                         ))}
                         <div className="w-4 flex-shrink-0" />
                     </div>
-                    <div className="absolute right-0 top-0 bottom-3 w-12 bg-gradient-to-l from-white to-transparent pointer-events-none" />
+                    <div className="absolute right-0 top-0 bottom-3 w-12 bg-gradient-to-l from-bg to-transparent pointer-events-none" />
                 </div>
             </div>
 
             {/* Content Grid */}
-            <ScrollArea className="flex-1 bg-white">
+            <ScrollArea className="flex-1 bg-bg">
                 <div className="p-2 grid grid-cols-2 gap-2">
                     {isLoading ? (
                         Array(8).fill(0).map((_, i) => (
@@ -115,7 +115,7 @@ export const MediaPicker: React.FC<MediaPickerProps> = ({ onSelect, onClose }) =
                         items.map((item) => (
                             <div
                                 key={item.id}
-                                className="group relative aspect-video bg-slate-50 rounded-lg overflow-hidden cursor-pointer hover:ring-2 hover:ring-blue-400/50 transition-all"
+                                className="group relative aspect-video bg-surface-2 rounded-lg overflow-hidden cursor-pointer hover:ring-2 hover:ring-blue-400/50 transition-all"
                                 onClick={() => onSelect(item.url, activeTab)}
                             >
                                 <img
@@ -135,12 +135,12 @@ export const MediaPicker: React.FC<MediaPickerProps> = ({ onSelect, onClose }) =
             </ScrollArea>
 
             {/* Footer Tab Switcher */}
-            <div className="flex-shrink-0 p-3 bg-white border-t border-slate-50">
+            <div className="flex-shrink-0 p-3 bg-bg border-t border-border-custom">
                 <div className="flex bg-slate-100/50 p-1 rounded-full relative">
                     <button
                         className={cn(
                             "flex-1 flex items-center justify-center gap-2 py-2 rounded-full text-sm font-medium transition-colors relative z-10",
-                            activeTab === 'gifs' ? "text-blue-600" : "text-slate-500 hover:text-slate-700"
+                            activeTab === 'gifs' ? "text-primary-blue" : "text-text-secondary hover:text-text-primary"
                         )}
                         onClick={() => setActiveTab('gifs')}
                     >
@@ -159,7 +159,7 @@ export const MediaPicker: React.FC<MediaPickerProps> = ({ onSelect, onClose }) =
                     <button
                         className={cn(
                             "flex-1 flex items-center justify-center gap-2 py-2 rounded-full text-sm font-medium transition-colors relative z-10",
-                            activeTab === 'stickers' ? "text-blue-600" : "text-slate-500 hover:text-slate-700"
+                            activeTab === 'stickers' ? "text-primary-blue" : "text-text-secondary hover:text-text-primary"
                         )}
                         onClick={() => setActiveTab('stickers')}
                     >

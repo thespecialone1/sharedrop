@@ -87,7 +87,7 @@ export const AudioPlayer = ({ src, title, onNext, onPrev, path }: AudioPlayerPro
     }, [isPlaying]);
 
     return (
-        <div className="w-full max-w-md bg-white/10 backdrop-blur-xl p-6 rounded-3xl flex flex-col gap-4 shadow-2xl border border-white/10 text-white">
+        <div className="w-full max-w-md bg-surface-2/90 backdrop-blur-xl p-6 rounded-3xl flex flex-col gap-4 shadow-2xl border border-border-custom text-text-primary">
             <div className="flex items-center gap-4 relative">
                 <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center flex-shrink-0">
                     <Volume2 className="text-white opacity-80" size={32} />
@@ -98,7 +98,7 @@ export const AudioPlayer = ({ src, title, onNext, onPrev, path }: AudioPlayerPro
                             {title}
                         </h3>
                     </div>
-                    <p className="text-white/50 text-sm">Audio Preview</p>
+                    <p className="text-text-secondary text-sm">Audio Preview</p>
                 </div>
 
                 {/* Embedded Actions (Top Right) */}
@@ -106,7 +106,7 @@ export const AudioPlayer = ({ src, title, onNext, onPrev, path }: AudioPlayerPro
                     <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 text-white hover:bg-white/20 rounded-full"
+                        className="h-8 w-8 text-text-secondary hover:text-text-primary hover:bg-surface-1 rounded-full"
                         onClick={() => window.open(`/api/stream?path=${encodeURIComponent(path)}`)}
                         title="Open Full"
                     >
@@ -115,7 +115,7 @@ export const AudioPlayer = ({ src, title, onNext, onPrev, path }: AudioPlayerPro
                     <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 text-white hover:bg-white/20 rounded-full"
+                        className="h-8 w-8 text-text-secondary hover:text-text-primary hover:bg-surface-1 rounded-full"
                         onClick={() => window.open(`/api/file?path=${encodeURIComponent(path)}`)}
                         title="Download"
                     >
@@ -132,7 +132,7 @@ export const AudioPlayer = ({ src, title, onNext, onPrev, path }: AudioPlayerPro
             />
 
             <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs text-white/50 font-mono">
+                <div className="flex items-center justify-between text-xs text-text-secondary font-mono">
                     <span>{formatTime(progress)}</span>
                     <span>{formatTime(duration)}</span>
                 </div>
@@ -142,23 +142,23 @@ export const AudioPlayer = ({ src, title, onNext, onPrev, path }: AudioPlayerPro
                     max={duration || 100}
                     value={progress}
                     onChange={handleSeek}
-                    className="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white"
+                    className="w-full h-1 bg-border-custom rounded-lg appearance-none cursor-pointer accent-primary-blue"
                 />
             </div>
 
             <div className="flex items-center justify-center gap-6 pt-2">
-                <Button variant="ghost" size="icon" className="hover:bg-white/10 rounded-full" onClick={() => audioRef.current && (audioRef.current.currentTime -= 15)}>
+                <Button variant="ghost" size="icon" className="hover:bg-surface-1 rounded-full text-text-secondary hover:text-text-primary" onClick={() => audioRef.current && (audioRef.current.currentTime -= 15)}>
                     <span className="text-xs font-bold">-15s</span>
                 </Button>
                 <Button
                     variant="secondary"
                     size="icon"
-                    className="h-12 w-12 rounded-full bg-white text-black hover:bg-white/90"
+                    className="h-12 w-12 rounded-full bg-text-primary text-bg hover:bg-text-primary/90 shadow-lg"
                     onClick={togglePlay}
                 >
                     {isPlaying ? <Pause fill="currentColor" /> : <Play fill="currentColor" className="ml-1" />}
                 </Button>
-                <Button variant="ghost" size="icon" className="hover:bg-white/10 rounded-full" onClick={() => audioRef.current && (audioRef.current.currentTime += 15)}>
+                <Button variant="ghost" size="icon" className="hover:bg-surface-1 rounded-full text-text-secondary hover:text-text-primary" onClick={() => audioRef.current && (audioRef.current.currentTime += 15)}>
                     <span className="text-xs font-bold">+15s</span>
                 </Button>
             </div>

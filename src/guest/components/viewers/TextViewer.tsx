@@ -37,7 +37,7 @@ export const TextViewer: React.FC<TextViewerProps> = ({ path, onClose }) => {
     };
 
     return (
-        <div className="flex flex-col h-full w-full bg-white relative">
+        <div className="flex flex-col h-full w-full bg-bg relative">
             <ViewerToolbar
                 title={path.split('/').pop() || 'Text Viewer'}
                 onClose={onClose}
@@ -48,14 +48,14 @@ export const TextViewer: React.FC<TextViewerProps> = ({ path, onClose }) => {
                 onToggleWrap={() => setWordWrap(!wordWrap)}
             />
 
-            <div className="flex-1 overflow-auto pt-16 p-6 bg-slate-50">
-                <div className={`max-w-4xl mx-auto bg-white shadow-sm p-8 min-h-full rounded-lg ${wordWrap ? 'whitespace-pre-wrap' : 'whitespace-pre overflow-x-auto'}`}
+            <div className="flex-1 overflow-auto pt-16 p-6 bg-surface-2">
+                <div className={`max-w-4xl mx-auto bg-bg shadow-sm p-8 min-h-full rounded-lg ${wordWrap ? 'whitespace-pre-wrap' : 'whitespace-pre overflow-x-auto'}`}
                     style={{ fontSize: `${fontSize}px`, fontFamily: 'monospace' }}>
                     {isLoading ? (
                         <div className="animate-pulse space-y-2">
-                            <div className="h-4 bg-slate-200 rounded w-3/4"></div>
-                            <div className="h-4 bg-slate-200 rounded w-1/2"></div>
-                            <div className="h-4 bg-slate-200 rounded w-5/6"></div>
+                            <div className="h-4 bg-surface-2 rounded w-3/4"></div>
+                            <div className="h-4 bg-surface-2 rounded w-1/2"></div>
+                            <div className="h-4 bg-surface-2 rounded w-5/6"></div>
                         </div>
                     ) : (
                         <>

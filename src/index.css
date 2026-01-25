@@ -43,36 +43,81 @@
         --chart-4: 43 74% 66%;
 
         --chart-5: 27 87% 67%;
+
+        /* New Light Tokens */
+        --bg: #FFFFFF;
+        --surface-1: #F8FAFF;
+        --surface-2: #F1F5F9;
+        --text-primary: #0F172A;
+        --text-secondary: #334155;
+        --muted-ink: #0F172A;
+        --primary-blue: #2563EB;
+        --gold: #FCD34D;
+        --border-custom: #E6EEF8;
+        --shadow-1: 0 8px 24px rgba(15, 23, 42, 0.06);
+
+        /* Folder Icons - Light */
+        --folder-bg-from: #FFFBEB;
+        /* amber-50 */
+        --folder-bg-to: #FFF7ED;
+        /* orange-50 */
+        --folder-outline: #F59E0B;
+        /* amber-500 */
+        --folder-fill: #FDE68A;
+        /* amber-200 */
     }
 
     .dark {
-        --background: 0 0% 3.9%;
-        --foreground: 0 0% 98%;
+        --background: 222 47% 11%;
+        /* #0B0F14 converted to HSL approx 222 47% 11% */
+        --foreground: 210 40% 98%;
 
-        --card: 0 0% 3.9%;
-        --card-foreground: 0 0% 98%;
+        --card: 222 47% 11%;
+        --card-foreground: 210 40% 98%;
 
-        --popover: 0 0% 3.9%;
-        --popover-foreground: 0 0% 98%;
+        --popover: 222 47% 11%;
+        --popover-foreground: 210 40% 98%;
 
-        --primary: 0 0% 98%;
-        --primary-foreground: 0 0% 9%;
+        --primary: 210 40% 98%;
+        --primary-foreground: 222 47.4% 11.2%;
 
-        --secondary: 0 0% 14.9%;
-        --secondary-foreground: 0 0% 98%;
+        --secondary: 217.2 32.6% 17.5%;
+        --secondary-foreground: 210 40% 98%;
 
-        --muted: 0 0% 14.9%;
-        --muted-foreground: 0 0% 63.9%;
+        --muted: 217.2 32.6% 17.5%;
+        --muted-foreground: 215 20.2% 65.1%;
 
-        --accent: 0 0% 14.9%;
-        --accent-foreground: 0 0% 98%;
+        --accent: 217.2 32.6% 17.5%;
+        --accent-foreground: 210 40% 98%;
 
         --destructive: 0 62.8% 30.6%;
         --destructive-foreground: 0 0% 98%;
 
-        --border: 0 0% 14.9%;
-        --input: 0 0% 14.9%;
-        --ring: 0 0% 83.1%;
+        --border: 217.2 32.6% 17.5%;
+        --input: 217.2 32.6% 17.5%;
+        --ring: 212.7 26.8% 83.9%;
+
+        /* New Dark Tokens */
+        --bg: #0B0F14;
+        --surface-1: #0F1720;
+        --surface-2: #111827;
+        --text-primary: #E6EEF8;
+        --text-secondary: #B6C2D6;
+        --muted-ink: #C7D3E6;
+        --primary-blue: #4F8CFF;
+        --gold: #FCD34D;
+        --border-custom: rgba(255, 255, 255, 0.06);
+        /* custom border to avoid conflict with shadcn --border */
+        --shadow-1: 0 8px 24px rgba(2, 6, 23, 0.6);
+
+        /* Folder Icons - Dark */
+        --folder-bg-from: transparent;
+        --folder-bg-to: transparent;
+        --folder-outline: #FBBF24;
+        /* amber-400 */
+        --folder-fill: #78350F;
+        /* amber-900 */
+
         --chart-1: 220 70% 50%;
         --chart-2: 160 60% 45%;
         --chart-3: 30 80% 55%;
@@ -80,6 +125,8 @@
         --chart-5: 340 75% 55%;
     }
 }
+
+
 
 @layer base {
     * {
@@ -102,9 +149,15 @@
 
 @layer utilities {
     @keyframes marquee {
-        0% { transform: translateX(0%); }
-        100% { transform: translateX(-100%); }
+        0% {
+            transform: translateX(0%);
+        }
+
+        100% {
+            transform: translateX(-100%);
+        }
     }
+
     .animate-marquee {
         animation: marquee 10s linear infinite;
     }

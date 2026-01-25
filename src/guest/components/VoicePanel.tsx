@@ -61,7 +61,7 @@ const VoicePanel: React.FC<VoicePanelProps> = ({
             <Button
                 variant="outline"
                 size="sm"
-                className={`${buttonBaseClass} border-slate-200 hover:bg-slate-50 text-slate-700`}
+                className={`${buttonBaseClass} border-border-custom hover:bg-surface-2 text-text-secondary`}
                 onClick={() => onStart()}
                 disabled={isLoading}
             >
@@ -105,9 +105,9 @@ const VoicePanel: React.FC<VoicePanelProps> = ({
 
     // In voice room
     return (
-        <div className="flex items-center gap-1 bg-white border border-slate-200 shadow-sm rounded-lg p-0.5 px-1">
+        <div className="flex items-center gap-1 bg-bg border border-border-custom shadow-sm rounded-lg p-0.5 px-1">
             {/* Status Indicators */}
-            <div className="hidden sm:flex items-center px-1 border-r border-slate-200 mr-1 gap-2">
+            <div className="hidden sm:flex items-center px-1 border-r border-border-custom mr-1 gap-2">
                 {isLocked && <Lock size={12} className="text-amber-500" />}
                 {hostReconnecting ? (
                     <span className="text-[10px] text-amber-600 font-bold animate-pulse">Host Reconnecting...</span>
@@ -115,8 +115,8 @@ const VoicePanel: React.FC<VoicePanelProps> = ({
                     <span className="text-[10px] text-amber-600 font-bold animate-pulse">Reconnecting...</span>
                 ) : (
                     <div className="flex items-center gap-1">
-                        <Users size={12} className="text-slate-400" />
-                        <span className="text-[10px] text-slate-600 font-bold">{participantCount}</span>
+                        <Users size={12} className="text-text-secondary" />
+                        <span className="text-[10px] text-text-secondary font-bold">{participantCount}</span>
                     </div>
                 )}
             </div>
@@ -137,8 +137,8 @@ const VoicePanel: React.FC<VoicePanelProps> = ({
                 variant="ghost"
                 size="icon"
                 className={`h-7 w-7 rounded-md transition-all ${isPttEnabled
-                    ? (isSpeaking ? 'bg-green-500 text-white shadow-md' : 'bg-slate-100 text-slate-400')
-                    : (isMuted ? 'bg-red-100 text-red-600 hover:bg-red-200' : 'hover:bg-slate-100 text-slate-600')
+                    ? (isSpeaking ? 'bg-green-500 text-white shadow-md' : 'bg-surface-2 text-text-secondary')
+                    : (isMuted ? 'bg-red-500/10 text-red-600 hover:bg-red-500/20' : 'hover:bg-surface-2 text-text-secondary')
                     }`}
                 onClick={isPttEnabled ? undefined : onToggleMute}
                 disabled={isPttEnabled}
@@ -149,7 +149,7 @@ const VoicePanel: React.FC<VoicePanelProps> = ({
                 ) : (
                     <div className="relative">
                         <Mic size={14} className={isSpeaking ? 'animate-pulse' : ''} />
-                        {isPttEnabled && <span className="absolute -top-1 -right-1 block w-1.5 h-1.5 bg-blue-500 rounded-full border border-white" />}
+                        {isPttEnabled && <span className="absolute -top-1 -right-1 block w-1.5 h-1.5 bg-blue-500 rounded-full border border-bg" />}
                     </div>
                 )}
             </Button>
@@ -158,7 +158,7 @@ const VoicePanel: React.FC<VoicePanelProps> = ({
             {isHost && (
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-slate-100 text-slate-600">
+                        <Button variant="ghost" size="icon" className="h-7 w-7 rounded-md hover:bg-surface-2 text-text-secondary">
                             <Settings2 size={14} />
                         </Button>
                     </DropdownMenuTrigger>
@@ -185,7 +185,7 @@ const VoicePanel: React.FC<VoicePanelProps> = ({
             <Button
                 variant={isHost ? "destructive" : "ghost"}
                 size="icon"
-                className={`h-7 w-7 rounded-md ml-1 ${isHost ? 'bg-red-500 hover:bg-red-600 text-white' : 'bg-red-50 text-red-500 hover:bg-red-100'}`}
+                className={`h-7 w-7 rounded-md ml-1 ${isHost ? 'bg-red-500 hover:bg-red-600 text-white' : 'bg-red-500/10 text-red-500 hover:bg-red-500/20'}`}
                 onClick={isHost ? onStop : onLeave}
                 title={isHost ? 'End Voice Room' : 'Leave Voice'}
             >

@@ -131,7 +131,7 @@ export const EpubViewer: React.FC<EpubViewerProps> = ({ path, previewUrl, onClos
     const handleDownload = () => window.open(`/api/file?path=${encodeURIComponent(path)}`);
 
     return (
-        <div className="flex flex-col h-full w-full bg-white relative">
+        <div className="flex flex-col h-full w-full bg-bg relative">
             <ViewerToolbar
                 title={path.split('/').pop() || 'Ebook Reader'}
                 onClose={onClose}
@@ -141,7 +141,7 @@ export const EpubViewer: React.FC<EpubViewerProps> = ({ path, previewUrl, onClos
                 zoomLevel={fontSize / 100}
             />
 
-            <div className="flex-1 relative pt-16 bg-[#f8f5f1]">
+            <div className="flex-1 relative pt-16 bg-surface-2">
                 {/* Main Book Container */}
                 <div ref={containerRef} className="h-full w-full max-w-4xl mx-auto shadow-md bg-white" />
 

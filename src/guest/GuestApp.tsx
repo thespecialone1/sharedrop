@@ -20,6 +20,7 @@ import AudioElements from './components/AudioElements';
 import { useNotifications } from './hooks/useNotifications';
 import { NotificationLayer } from './components/NotificationLayer';
 import { AudioPlayer } from './components/AudioPlayer';
+import { ThemeToggle } from './components/ThemeToggle';
 
 const EpubViewer = React.lazy(() => import('./components/viewers/EpubViewer').then(m => ({ default: m.EpubViewer })));
 const TextViewer = React.lazy(() => import('./components/viewers/TextViewer').then(m => ({ default: m.TextViewer })));
@@ -114,8 +115,8 @@ const GuestApp = () => {
 
     // Password dialog - compact centered card
     if (!isAuthenticated) return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center p-6">
-            <div className="w-[320px] bg-white shadow-2xl rounded-3xl p-8">
+        <div className="min-h-screen bg-bg flex items-center justify-center p-6">
+            <div className="w-[320px] bg-surface-1 shadow-2xl rounded-3xl p-8">
                 <form onSubmit={handleAuth} className="space-y-5">
                     <div className="text-center space-y-1">
                         <h1 className="text-xl font-bold text-slate-900">SharedDrop</h1>
@@ -123,7 +124,7 @@ const GuestApp = () => {
                     </div>
                     <Input
                         type="password"
-                        className="h-11 bg-slate-50 text-center text-lg tracking-[0.25em]"
+                        className="h-11 bg-surface-2 text-center text-lg tracking-[0.25em]"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         placeholder="••••••••"
@@ -139,7 +140,7 @@ const GuestApp = () => {
     );
 
     if (!roomId) return (
-        <div className="min-h-screen bg-white flex items-center justify-center text-base text-slate-400">
+        <div className="min-h-screen bg-bg flex items-center justify-center text-base text-text-secondary">
             Loading session…
         </div>
     );
@@ -182,13 +183,13 @@ const UsernameSelection = ({ roomId, onSelect }: { roomId: string, onSelect: (na
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center p-6">
-            <div className="w-[320px] bg-white shadow-2xl rounded-3xl p-8 space-y-5">
+            <div className="w-[320px] bg-surface-1 shadow-2xl rounded-3xl p-8 space-y-5">
                 <div className="text-center space-y-1">
-                    <h1 className="text-xl font-bold text-slate-900">Pick a Username</h1>
-                    <p className="text-sm text-slate-500">Choose your display name</p>
+                    <h1 className="text-xl font-bold text-text-primary">Pick a Username</h1>
+                    <p className="text-sm text-text-secondary">Choose your display name</p>
                 </div>
                 <Input
-                    className="h-11 bg-slate-50 text-center text-base"
+                    className="h-11 bg-surface-2 text-center text-base"
                     value={name}
                     onChange={(e) => setName(e.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12))}
                     onPaste={(e) => {
@@ -523,7 +524,7 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
     useEffect(() => { setFocusedIndex(-1); }, [currentPath]);
 
     return (
-        <div className="h-screen w-screen bg-slate-50 flex overflow-hidden">
+        <div className="h-screen w-screen bg-bg dark:bg-[image:var(--bg-gradient)] flex overflow-hidden font-sans selection:bg-primary-blue/30">
             {/* Chat Sidebar */}
             <ChatSidebar
                 isOpen={isSidebarOpen}
@@ -593,17 +594,16 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
             <ReactionOverlay lastReaction={voiceRoom?.lastBroadcastReaction || null} isSidebarOpen={isSidebarOpen} />
 
             {/* Main content */}
-            <div className="flex-1 flex flex-col min-w-0 bg-white">
+            <div className="flex-1 flex flex-col min-w-0 bg-transparent">
                 {/* Header */}
-                <header className="flex-shrink-0 bg-white border-b border-slate-100 px-4 py-3">
+                <header className="flex-shrink-0 bg-transparent px-6 py-4">
                     <div className="max-w-6xl mx-auto">
                         <div className="flex items-center gap-3">
                             <Button
                                 variant="outline"
                                 size="icon"
-                                className="rounded-xl h-10 w-10 border-slate-200 hover:bg-slate-50 relative"
+                                className="rounded-xl h-10 w-10 border-border-custom/50 bg-surface-1/50 hover:bg-surface-2/80 backdrop-blur-sm relative transition-all"
                                 onClick={() => {
-                                    if (!isSidebarOpen) notifications.setHasUnreadMessages(false);
                                     setIsSidebarOpen(!isSidebarOpen);
                                 }}
                             >
@@ -639,17 +639,19 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
                                     ) : (
                                         <img src="/branding/mascot-master-64.png" className="w-6 h-6 object-contain" alt="SharedDrop" />
                                     )}
-                                    <p className="text-base font-bold text-slate-800 truncate">
+                                    <p className="text-base font-bold text-text-primary truncate">
                                         {currentPath ? currentPath.split('/').pop() : 'SharedDrop'}
                                     </p>
                                 </div>
                                 <p className="text-xs text-slate-400 truncate">/{currentPath || ''}</p>
                             </div>
 
+                            <ThemeToggle />
+
                             <Button
                                 variant="ghost"
                                 size="icon"
-                                className="rounded-xl h-10 w-10 text-slate-400 hover:text-slate-600"
+                                className="rounded-xl h-10 w-10 text-text-secondary hover:text-text-primary hover:bg-surface-2"
                                 onClick={() => window.location.reload()}
                             >
                                 <LogOut size={16} />
@@ -657,11 +659,11 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
                         </div>
 
                         {/* Search and filters */}
-                        <div className="flex items-center gap-3 mt-4">
+                        <div className="flex items-center gap-3 mt-6">
                             <div className="relative flex-1 max-w-lg">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" size={16} />
                                 <Input
-                                    className="h-10 pl-10 rounded-xl border-slate-200 bg-slate-50 text-sm focus-visible:ring-blue-500 focus-visible:ring-2"
+                                    className="h-11 pl-10 rounded-full border-border-custom/30 bg-glass-bg backdrop-blur-md text-sm focus-visible:ring-primary-blue/50 focus-visible:ring-2 focus-visible:border-primary-blue/30 transition-all placeholder:text-muted-ink shadow-sm"
                                     placeholder="Search files..."
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
@@ -688,7 +690,7 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
                 {/* Gallery grid */}
                 <main className="flex-1 overflow-auto p-4">
                     <div className="max-w-6xl mx-auto">
-                        <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+                        <div className="grid gap-5 sm:gap-6 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 pb-20">
                             {isLoading ? <SkeletonFeed /> : filteredItems.length > 0 ? (
                                 filteredItems.map((item, i) => (
                                     <FileCard
@@ -730,7 +732,7 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
                                     Attach to Chat ({Math.min(selectedPaths.filter(p => /\.(jpg|jpeg|png|webp|gif)$/i.test(p)).length, 5)})
                                 </Button>
                             )}
-                            <Button className="bg-white text-slate-900 hover:bg-slate-100 rounded-xl h-9 px-4 text-sm font-medium" onClick={downloadSelection}>
+                            <Button className="bg-surface-1/80 backdrop-blur-sm text-text-primary hover:bg-surface-2 border border-border-custom/30 rounded-full h-9 px-4 text-sm font-medium shadow-sm" onClick={downloadSelection}>
                                 <Download size={14} className="mr-2" />
                                 {selectedPaths.length === 1 ? 'Download' : 'ZIP'}
                             </Button>
@@ -939,7 +941,9 @@ const FileCard = ({ item, currentPath, onNavigate, selected, onToggle, onLongPre
 
     return (
         <div
-            className={`group rounded-2xl bg-white border overflow-hidden cursor-pointer transition-all shadow-sm hover:shadow-md ${isFocused ? 'ring-2 ring-blue-500' : 'border-slate-100'}`}
+            className={`group rounded-[16px] bg-[image:var(--surface-card)] border-0 overflow-hidden cursor-pointer transition-all duration-200 
+                ${isFocused || selected ? 'ring-2 ring-primary-blue shadow-glow -translate-y-0.5' : 'shadow-card hover:-translate-y-1 hover:shadow-2xl hover:brightness-110'}
+            `}
             onClick={handleClick}
             onTouchStart={handleTouchStart}
             onTouchEnd={handleTouchEnd}
@@ -947,10 +951,16 @@ const FileCard = ({ item, currentPath, onNavigate, selected, onToggle, onLongPre
             onTouchCancel={handleTouchEnd}
         >
             {/* Thumbnail */}
-            <div className="aspect-square relative bg-slate-50 overflow-hidden">
+            <div className="aspect-square relative bg-transparent overflow-hidden p-4 flex items-center justify-center">
                 {item.isDirectory ? (
-                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-amber-50 to-orange-50">
-                        <Folder size={48} className="text-amber-500 fill-amber-200" />
+                    <div className="relative transition-transform duration-300 group-hover:scale-110">
+                        {/* Enhanced Folder Icon */}
+                        <div className="absolute inset-0 bg-folder-outline blur-xl opacity-20 group-hover:opacity-40 transition-opacity"></div>
+                        <Folder
+                            size={72}
+                            className="text-folder-outline fill-folder-fill relative z-10 drop-shadow-lg"
+                            style={{ filter: 'drop-shadow(var(--folder-shadow))' }}
+                        />
                     </div>
                 ) : (isImage || isVideo) ? (
                     <>
@@ -969,7 +979,7 @@ const FileCard = ({ item, currentPath, onNavigate, selected, onToggle, onLongPre
                         )}
                     </>
                 ) : (
-                    <div className={`w-full h-full flex flex-col items-center justify-center gap-1 ${ext === 'pdf' ? 'bg-red-50 text-red-400' : 'bg-slate-50 text-slate-300'}`}>
+                    <div className={`w-full h-full flex flex-col items-center justify-center gap-1 ${ext === 'pdf' ? 'bg-red-500/10 text-red-500' : 'bg-surface-2 text-text-secondary'}`}>
                         <FileText size={32} />
                         <span className="text-xs font-bold uppercase">.{ext}</span>
                     </div>
@@ -1007,9 +1017,19 @@ const FileCard = ({ item, currentPath, onNavigate, selected, onToggle, onLongPre
             </div>
 
             {/* Info */}
-            <div className="px-3 py-2">
-                <p className={`text-sm font-medium text-slate-800 truncate ${item.isDirectory ? 'font-semibold' : ''}`}>{item.name}</p>
-                <p className="text-xs text-slate-400 mt-0.5">{new Date(item.mtime).toLocaleDateString()}</p>
+            <div className="px-4 py-3">
+                <div className="flex items-center justify-between gap-2 mb-1">
+                    <p className={`text-sm font-medium text-text-primary truncate ${item.isDirectory ? 'font-semibold tracking-wide' : ''} flex-1`}>{item.name}</p>
+                    {selected && <CheckSquare size={16} className="text-primary-blue flex-shrink-0" />}
+                </div>
+                <div className="flex items-center justify-between">
+                    <p className="text-[11px] text-text-secondary opacity-70 font-medium tracking-tight">
+                        {new Date(item.mtime).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                    </p>
+                    <p className="text-[11px] text-text-secondary opacity-60 font-mono tracking-tighter">
+                        {item.size ? (item.size < 1024 ? `${item.size} B` : item.size < 1048576 ? `${(item.size / 1024).toFixed(1)} KB` : `${(item.size / 1048576).toFixed(1)} MB`) : '--'}
+                    </p>
+                </div>
             </div>
         </div>
     );
@@ -1040,7 +1060,7 @@ const getFileType = (name: string) => {
 };
 
 const SkeletonFeed = () => [...Array(12)].map((_, i) => (
-    <div key={i} className="rounded-2xl overflow-hidden bg-white border border-slate-100 shadow-sm">
+    <div key={i} className="rounded-[16px] overflow-hidden bg-surface-1/30 border border-white/5 shadow-sm">
         <Skeleton className="aspect-square" />
         <div className="p-3 space-y-2">
             <Skeleton className="h-4 w-3/4" />
@@ -1051,10 +1071,10 @@ const SkeletonFeed = () => [...Array(12)].map((_, i) => (
 
 const EmptyState = () => (
     <div className="col-span-full py-16 text-center">
-        <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Filter size={24} className="text-slate-300" />
+        <div className="w-16 h-16 bg-surface-1 rounded-full flex items-center justify-center mx-auto mb-4 border border-white/5">
+            <Filter size={24} className="text-text-secondary/50" />
         </div>
-        <p className="text-base text-slate-400">No files found</p>
+        <p className="text-base text-text-secondary">No files found</p>
     </div>
 );
 

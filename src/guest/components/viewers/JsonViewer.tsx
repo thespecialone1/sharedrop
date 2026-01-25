@@ -35,7 +35,7 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({ path, onClose }) => {
     const handleDownload = () => window.open(`/api/file?path=${encodeURIComponent(path)}`);
 
     return (
-        <div className="flex flex-col h-full w-full bg-white relative">
+        <div className="flex flex-col h-full w-full bg-bg relative">
             <ViewerToolbar
                 title={path.split('/').pop() || 'JSON Viewer'}
                 onClose={onClose}
@@ -48,12 +48,12 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({ path, onClose }) => {
                         <Loader2 className="animate-spin mr-2" /> Loading JSON...
                     </div>
                 ) : error ? (
-                    <div className="flex flex-col items-center justify-center h-full text-slate-500 gap-4">
+                    <div className="flex flex-col items-center justify-center h-full text-text-secondary gap-4">
                         <p>{error}</p>
-                        <button onClick={handleDownload} className="px-4 py-2 bg-slate-900 text-white rounded-lg">Download File</button>
+                        <button onClick={handleDownload} className="px-4 py-2 bg-text-primary text-bg rounded-lg">Download File</button>
                     </div>
                 ) : (
-                    <div className="max-w-5xl mx-auto bg-slate-50 p-4 rounded-xl overflow-hidden shadow-sm border border-slate-100 min-h-[500px]">
+                    <div className="max-w-5xl mx-auto bg-bg p-4 rounded-xl overflow-hidden shadow-sm border border-border-custom min-h-[500px]">
                         <ReactJson
                             src={json}
                             theme="rjv-default"
