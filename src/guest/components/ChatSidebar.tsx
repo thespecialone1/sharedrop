@@ -482,7 +482,7 @@ const ChatSidebar = ({
                             <div className="flex-1 min-w-0 py-1.5">
                                 <input
                                     ref={inputRef}
-                                    className="w-full bg-transparent border-none focus:ring-0 outline-none p-0 text-sm text-slate-800 placeholder:text-slate-500 max-h-32 overflow-y-auto resize-none"
+                                    className="w-full bg-transparent border-none focus:ring-0 outline-none p-0 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-500 dark:placeholder:text-slate-400 max-h-32 overflow-y-auto resize-none"
                                     placeholder={(linkedImages.length > 0 || pendingSticker) ? "Add a caption..." : "Type a message..."}
                                     value={chatInput}
                                     onChange={(e) => setChatInput(e.target.value)}
