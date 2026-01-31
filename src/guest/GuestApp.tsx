@@ -16,6 +16,8 @@ import { ReactionOverlay } from './components/ReactionOverlay';
 import SimpleVideoPlayer from './components/VideoPlayer';
 import StatsTags from './components/StatsTags';
 import { useVoiceRoom } from './hooks/useVoiceRoom';
+import { useVideoRoom } from './hooks/useVideoRoom';
+import { PIPWindow } from './components/PIPWindow';
 import AudioElements from './components/AudioElements';
 import { useNotifications } from './hooks/useNotifications';
 import { NotificationLayer } from './components/NotificationLayer';
@@ -242,6 +244,10 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
 
     // Voice room hook
     const voiceRoom = useVoiceRoom(socketRef.current, mySocketId);
+    // Video room hook
+    const videoRoom = useVideoRoom(socketRef.current, mySocketId);
+
+    // Notification hook
 
     // Notification hook
     const notifications = useNotifications(socketRef.current, roomId, username);
@@ -381,6 +387,9 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
                     voiceRoom.reconnectVoice();
                 }
             }, 500);
+
+            // Resync video state check is handled inside useVideoRoom hook via socket 'connect'
+
         });
 
         socket.on('chat-history', (history: ChatMessage[]) => {
@@ -391,7 +400,12 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
             setMessages(normalized);
         });
         socket.on('presence-update', (list: string[]) => setUsers(list));
-        socket.on('chat-message', (msg: ChatMessage) => setMessages(prev => [...prev, msg]));
+        socket.on('chat-message', (msg: ChatMessage) => {
+            setMessages(prev => {
+                if (prev.some(m => m.id === msg.id)) return prev;
+                return [...prev, msg];
+            });
+        });
         socket.on('typing-update', ({ username: u, isTyping }: { username: string, isTyping: boolean }) => setTypingUser(isTyping ? u : null));
         socket.on('history-cleared', () => setMessages([]));
         socket.on('reaction-update', ({ messageId, reactions }: { messageId: string, reactions: Record<string, string[]> }) => {
@@ -545,6 +559,14 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
                 onClearLinkedImages={() => setLinkedImages([])}
                 onImageClick={(path) => setPreviewPath(path)}
 
+                videoRoom={{
+                    isActive: videoRoom.isActive,
+                    isInVideo: videoRoom.isInVideo,
+                    onStart: videoRoom.startVideo,
+                    onJoin: videoRoom.joinVideo,
+                    error: videoRoom.error
+                }}
+
                 voiceRoom={{
                     isActive: voiceRoom.isActive,
                     isInVoice: voiceRoom.isInVoice,
@@ -572,6 +594,18 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
                 onKickParticipant={voiceRoom.kickUser}
                 onSendReaction={voiceRoom.sendReaction}
                 lastBroadcastReaction={voiceRoom.lastBroadcastReaction}
+            />
+
+            <PIPWindow
+                isActive={videoRoom.isInVideo}
+                localStream={videoRoom.localStream}
+                remoteStreams={videoRoom.remoteStreams}
+                participants={videoRoom.participants}
+                isMuted={videoRoom.isMuted}
+                isCameraOff={videoRoom.isCameraOff}
+                onToggleMute={videoRoom.toggleMute}
+                onToggleCamera={videoRoom.toggleCamera}
+                onLeave={videoRoom.leaveVideo}
             />
 
             <NotificationLayer

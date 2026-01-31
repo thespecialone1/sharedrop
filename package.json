@@ -1,6 +1,6 @@
 {
   "name": "file-share-app",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Share files instantly via secure Cloudflare tunnel",
   "type": "module",
   "main": "src/main/index.js",

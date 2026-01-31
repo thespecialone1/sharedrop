@@ -54,13 +54,15 @@ class ChatStore {
         }
     }
 
-    saveMessage(roomId, username, color, message, replyTo = null, attachments = null) {
-        if (!message || !message.trim()) return null;
+    saveMessage(roomId, username, color, message = '', replyTo = null, attachments = null) {
+        // Allow empty message if there are attachments
+        if ((!message || !message.trim()) && (!attachments || attachments.length === 0)) return null;
+
         const attachmentsJson = attachments ? JSON.stringify(attachments) : null;
         const stmt = this.db.prepare(
             'INSERT INTO messages (room_id, username, color, message, reply_to, attachments, ts) VALUES (?, ?, ?, ?, ?, ?, ?)'
         );
-        const result = stmt.run(roomId, username, color, message, replyTo, attachmentsJson, Date.now());
+        const result = stmt.run(roomId, username, color, message || '', replyTo, attachmentsJson, Date.now());
         return result.lastInsertRowid;
     }
 

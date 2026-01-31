@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useCallTimer } from '../hooks/useCallTimer';
 import { Button } from "@/components/ui/button";
 import { Mic, MicOff, PhoneOff, Phone, Lock, Unlock, Users, Keyboard, Settings2 } from 'lucide-react';
 import {
@@ -29,6 +30,7 @@ interface VoicePanelProps {
     isLoading?: boolean;
     isReconnecting?: boolean;
     hostReconnecting?: boolean;
+    isVideoActive?: boolean; // New prop to disable voice start if video is active
 }
 
 const VoicePanel: React.FC<VoicePanelProps> = ({
@@ -50,10 +52,12 @@ const VoicePanel: React.FC<VoicePanelProps> = ({
     onTogglePtt,
     isLoading = false,
     isReconnecting = false,
-    hostReconnecting = false
+    hostReconnecting = false,
+    isVideoActive = false
 }) => {
     // Helper to format button styles
     const buttonBaseClass = "h-8 px-3 rounded-lg text-xs font-semibold shadow-sm transition-all";
+    const duration = useCallTimer(isInVoice);
 
     // Not in voice, no active room
     if (!isActive && !isInVoice) {
@@ -63,14 +67,15 @@ const VoicePanel: React.FC<VoicePanelProps> = ({
                 size="sm"
                 className={`${buttonBaseClass} border-border-custom hover:bg-surface-2 text-text-secondary`}
                 onClick={() => onStart()}
-                disabled={isLoading}
+                disabled={isLoading || isVideoActive} // Disabled if video is active
+                title={isVideoActive ? "Video Call Active (Mutually Exclusive)" : "Start Voice Call"}
             >
                 {isLoading ? (
                     <span className="animate-pulse">Starting...</span>
                 ) : (
                     <>
-                        <Phone size={14} className="mr-2 text-green-600" />
-                        Start Voice
+                        <Phone size={14} className={`mr-2 ${isVideoActive ? 'text-slate-400' : 'text-green-600'}`} />
+                        {isVideoActive ? '' : ''} {/* Only Icon for Start */}
                     </>
                 )}
             </Button>
@@ -108,6 +113,7 @@ const VoicePanel: React.FC<VoicePanelProps> = ({
         <div className="flex items-center gap-1 bg-bg border border-border-custom shadow-sm rounded-lg p-0.5 px-1">
             {/* Status Indicators */}
             <div className="hidden sm:flex items-center px-1 border-r border-border-custom mr-1 gap-2">
+                <span className="text-[10px] font-mono text-slate-500">{duration}</span>
                 {isLocked && <Lock size={12} className="text-amber-500" />}
                 {hostReconnecting ? (
                     <span className="text-[10px] text-amber-600 font-bold animate-pulse">Host Reconnecting...</span>

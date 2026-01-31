@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useState } from 'react';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Send, X, Users, MessageCircle, Reply, Image as ImageIcon, Smile, Plus, Trash2, MoreHorizontal } from 'lucide-react';
+import { Send, X, Users, MessageCircle, Reply, Image as ImageIcon, Smile, Plus, Trash2, MoreHorizontal, Video } from 'lucide-react';
 import { getPastelColor } from '../utils/color';
 import VoicePanel from './VoicePanel';
 import ParticipantList from './ParticipantList';
@@ -59,6 +59,13 @@ interface ChatSidebarProps {
         onMuteAll: () => void;
         onTogglePtt: () => void;
     };
+    videoRoom?: {
+        isActive: boolean;
+        isInVideo: boolean;
+        onStart: () => void;
+        onJoin: () => void;
+        error: string | null;
+    };
     participants?: Array<{ socketId: string, username: string, isSpeaking?: boolean }>;
     hostSocketId?: string | null;
     mySocketId?: string | null;
@@ -88,7 +95,8 @@ const ChatSidebar = ({
     onKickParticipant,
     onSendReaction,
     lastBroadcastReaction,
-    onDeleteMessage
+    onDeleteMessage,
+    videoRoom
 }: ChatSidebarProps) => {
     const inputRef = useRef<HTMLInputElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -188,6 +196,30 @@ const ChatSidebar = ({
                             <span className="font-semibold text-sm text-text-primary">Chat</span>
                         </div>
                         <div className="flex items-center gap-2">
+                            {/* Video Control */}
+                            {videoRoom && !videoRoom.isInVideo && (
+                                <div className="relative">
+                                    {videoRoom.isActive && (
+                                        <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5 z-10">
+                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
+                                        </span>
+                                    )}
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className={`h-8 px-3 rounded-lg text-xs font-semibold shadow-sm transition-all border-border-custom hover:bg-surface-2
+                                            ${videoRoom.isActive
+                                                ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100'
+                                                : 'text-text-secondary'}`}
+                                        onClick={videoRoom.isActive ? videoRoom.onJoin : videoRoom.onStart}
+                                        title={videoRoom.isActive ? "Join Video Call" : "Start Video Call"}
+                                    >
+                                        <Video size={14} className={`mr-2 ${videoRoom.isActive ? 'text-green-600' : 'text-slate-400'}`} />
+                                        {videoRoom.isActive ? (videoRoom.isInVideo ? 'Active' : 'Join Video') : 'Video'}
+                                    </Button>
+                                </div>
+                            )}
                             {voiceRoom && (
                                 <VoicePanel
                                     isActive={voiceRoom.isActive}
@@ -209,6 +241,7 @@ const ChatSidebar = ({
                                     isLoading={voiceRoom.isLoading}
                                     isReconnecting={voiceRoom.isReconnecting}
                                     hostReconnecting={voiceRoom.hostReconnecting}
+                                    isVideoActive={videoRoom?.isActive}
                                 />
                             )}
                             <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={onToggle}>
@@ -216,6 +249,16 @@ const ChatSidebar = ({
                             </Button>
                         </div>
                     </div>
+
+                    {/* Debug: Check video state */}
+                    {/* {console.log('ChatSidebar VideoRoom:', videoRoom)} */}
+
+                    {/* Error Banner */}
+                    {videoRoom?.error && (
+                        <div className="bg-red-50 px-4 py-2 text-xs text-red-600 border-b border-red-100 flex items-center justify-between font-medium">
+                            <span>{videoRoom.error}</span>
+                        </div>
+                    )}
 
 
 
@@ -355,7 +398,7 @@ const ChatSidebar = ({
                                             {/* Reaction picker - fixed positioning */}
                                             {activeReactionId === m.id && (
                                                 <div
-                                                    className={`absolute ${isOwn ? 'right-0' : 'left-0'} -bottom-8 bg-bg border border-border-custom rounded-full shadow-lg px-2 py-1 flex gap-1 z-20`}
+                                                    className={`absolute ${isOwn ? 'right-0' : 'left-0'} -bottom-8 bg-bg border border-border-custom rounded-full shadow-lg px-2 py-1 flex gap-1 z-50`}
                                                     onMouseLeave={() => setTimeout(() => setActiveReactionId(null), 300)}
                                                 >
                                                     {REACTION_EMOJIS.map(emoji => (
@@ -457,8 +500,8 @@ const ChatSidebar = ({
 
                     {/* Input Area - Rich Media Pill */}
                     <div className="flex-shrink-0 p-3 bg-bg border-t border-border-custom relative z-50">
-                        {/* Voice Reactions */}
-                        {voiceRoom?.isInVoice && (
+                        {/* Voice/Video Reactions */}
+                        {(voiceRoom?.isInVoice || videoRoom?.isActive) && (
                             <div className="mb-2 flex justify-center">
                                 <ReactionsBar onReact={handleSendReaction} />
                             </div>
@@ -477,7 +520,7 @@ const ChatSidebar = ({
                             </div>
                         )}
 
-                        <div className="bg-surface-2 rounded-[24px] p-2 flex items-end gap-2 shadow-inner border border-border-custom focus-within:ring-2 focus-within:ring-blue-100 transition-all">
+                        <div className="bg-surface-2/50 hover:bg-surface-2 transition-colors rounded-full p-2 pl-4 flex items-end gap-2 border border-border-custom focus-within:border-border-custom ring-0 focus-within:ring-0">
                             {/* Standard Text Input - Transparent */}
                             <div className="flex-1 min-w-0 py-1.5">
                                 <input
@@ -517,8 +560,8 @@ const ChatSidebar = ({
                             </div>
                         </div>
                     </div>
-                </div>
-            </div>
+                </div >
+            </div >
         </>
     );
 };

@@ -105,6 +105,8 @@ class FileServer extends EventEmitter {
 
         // Voice room state: Map<roomId, { hostSocketId, participants: Set<socketId> }>
         this.voiceRooms = new Map();
+        // Video room state: Map<roomId, { hostSocketId, participants: Set<socketId>, active: boolean }>
+        this.videoRooms = new Map();
 
         // Session Control State
         this.sessionBans = new Set(); // Set<canonicalUsername>
@@ -627,6 +629,29 @@ class FileServer extends EventEmitter {
         });
     }
 
+    emitVideoState(roomId) {
+        const videoRoom = this.videoRooms.get(roomId);
+        if (videoRoom) {
+            const participants = Array.from(videoRoom.participants).map(sid => {
+                const u = this.activeUsers.get(sid);
+                return {
+                    socketId: sid,
+                    username: u ? u.username : 'Unknown',
+                    isPresenter: sid === videoRoom.hostSocketId
+                };
+            });
+
+            this.io.to(roomId).emit('video-state', {
+                roomId,
+                active: true,
+                hostSocketId: videoRoom.hostSocketId,
+                participants
+            });
+        } else {
+            this.io.to(roomId).emit('video-state', { roomId, active: false, participants: [] });
+        }
+    }
+
     ffmpegPreview(fullPath, cacheKey, res) {
         res.set('Content-Type', 'image/jpeg');
 
@@ -717,6 +742,178 @@ class FileServer extends EventEmitter {
             const getPresenceList = (roomId) => Array.from(this.activeUsers.values())
                 .filter(u => u.roomId === roomId)
                 .map(u => u.username);
+
+            // --- Video Room Signaling ---
+
+            socket.on('voice-start', ({ isPtt }, cb) => {
+                const user = this.activeUsers.get(socket.id);
+                if (!user) return cb({ success: false, error: 'User not found' });
+                const roomId = user.roomId;
+
+                // Enforce Exclusivity: No voice if video is active
+                if (this.videoRooms.has(roomId)) {
+                    return cb({ success: false, error: 'Video call currently active. Join that instead.' });
+                }
+
+                if (this.voiceRooms.has(roomId)) {
+                    return cb({ success: false, error: 'Room already active' });
+                }
+
+                this.voiceRooms.set(roomId, {
+                    hostSocketId: socket.id,
+                    hostUsername: user.username,
+                    participants: new Set([socket.id]),
+                    active: true,
+                    isPtt: isPtt,
+                    startedAt: Date.now()
+                });
+
+                // Broadcast to room
+                this.io.to(roomId).emit('voice-started', {
+                    roomId,
+                    hostSocketId: socket.id,
+                    hostUsername: user.username,
+                    isPtt: isPtt,
+                    startedAt: Date.now()
+                });
+
+                this.emitVoiceState(roomId);
+                cb({ success: true, hostSocketId: socket.id });
+            });
+
+            socket.on('video-start', ({ }, cb) => {
+                const user = this.activeUsers.get(socket.id);
+                if (!user) return cb({ success: false, error: 'User not found' });
+
+                const roomId = user.roomId;
+                if (!roomId) return cb({ success: false, error: 'No room context' });
+
+                if (this.videoRooms.has(roomId)) {
+                    return cb({ success: false, error: 'Video room already active' });
+                }
+
+                // Enforce Exclusivity: No video if voice is active
+                if (this.voiceRooms.has(roomId)) {
+                    return cb({ success: false, error: 'Voice call currently active. Please stop voice first.' });
+                }
+
+                this.videoRooms.set(roomId, {
+                    hostSocketId: socket.id,
+                    participants: new Set([socket.id]),
+                    active: true,
+                    startedAt: Date.now()
+                });
+
+                // Broadcast to room
+                this.io.to(roomId).emit('video-started', {
+                    roomId,
+                    host: { socketId: socket.id, username: user.username },
+                    startedAt: Date.now()
+                });
+
+                this.emitVideoState(roomId);
+                cb({ success: true, hostSocketId: socket.id });
+            });
+
+            socket.on('video-join', ({ }, cb) => {
+                const user = this.activeUsers.get(socket.id);
+                if (!user) return cb({ success: false, error: 'User not found' });
+                const roomId = user.roomId;
+
+                const videoRoom = this.videoRooms.get(roomId);
+                if (!videoRoom) return cb({ success: false, error: 'No active video room' });
+
+                // Check bans/kicks again just in case
+                if (this.sessionBans.has(user.canonicalUsername) || this.tempKickedUsers.has(user.canonicalUsername)) {
+                    return cb({ success: false, error: 'Access Denied' });
+                }
+
+                videoRoom.participants.add(socket.id);
+
+                this.io.to(roomId).emit('video-joined', {
+                    roomId,
+                    participant: { socketId: socket.id, username: user.username }
+                });
+
+                this.emitVideoState(roomId);
+
+                // Return current participants to the joiner
+                const currentParticipants = Array.from(videoRoom.participants).map(sid => {
+                    const u = this.activeUsers.get(sid);
+                    return { socketId: sid, username: u ? u.username : 'Unknown' };
+                }).filter(p => p.socketId !== socket.id);
+
+                cb({ success: true, hostSocketId: videoRoom.hostSocketId, participants: currentParticipants });
+            });
+
+            socket.on('video-leave', () => {
+                const user = this.activeUsers.get(socket.id);
+                if (!user) return;
+                const roomId = user.roomId;
+                const videoRoom = this.videoRooms.get(roomId);
+
+                if (videoRoom) {
+                    videoRoom.participants.delete(socket.id);
+                    this.io.to(roomId).emit('video-left', {
+                        roomId,
+                        participant: { socketId: socket.id, username: user.username }
+                    });
+
+                    if (videoRoom.participants.size === 0) {
+                        this.videoRooms.delete(roomId);
+                        this.io.to(roomId).emit('video-ended', { roomId, endedAt: Date.now() });
+                    } else if (socket.id === videoRoom.hostSocketId) {
+                        // Host left? For P2P MVP, maybe just end it or reassign? 
+                        // For now, let's keep it running if others are there, OR end it.
+                        // Let's end it if host leaves to simulate "Meeting Owner" logic for now, or assume next oldest is host.
+                        // Simplest MVP: Host leaves = Room Ends.
+                        this.videoRooms.delete(roomId);
+                        this.io.to(roomId).emit('video-ended', { roomId, endedAt: Date.now() });
+                    } else {
+                        this.emitVideoState(roomId);
+                    }
+                }
+            });
+
+            socket.on('video-offer', ({ toSocketId, sdp }) => {
+                const user = this.activeUsers.get(socket.id);
+                this.io.to(toSocketId).emit('video-offer', {
+                    fromSocketId: socket.id,
+                    fromUsername: user ? user.username : 'Unknown',
+                    sdp
+                });
+            });
+
+            socket.on('video-answer', ({ toSocketId, sdp }) => {
+                this.io.to(toSocketId).emit('video-answer', {
+                    fromSocketId: socket.id,
+                    sdp
+                });
+            });
+
+            socket.on('video-ice-candidate', ({ toSocketId, candidate }) => {
+                this.io.to(toSocketId).emit('video-ice-candidate', {
+                    fromSocketId: socket.id,
+                    candidate
+                });
+            });
+
+            socket.on('video-restart', ({ toSocketId, sdp }) => {
+                this.io.to(toSocketId).emit('video-restart', {
+                    fromSocketId: socket.id,
+                    sdp
+                });
+            });
+
+            socket.on('video-get-state', () => {
+                const user = this.activeUsers.get(socket.id);
+                if (user && user.roomId) {
+                    this.emitVideoState(user.roomId);
+                }
+            });
+
+            // --- End Video Room Signaling ---
+
 
             socket.on('check-username', ({ name, roomId }, cb) => {
                 const room = roomId || this.roomId;
