@@ -7,11 +7,13 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogHeader } f
 import {
     Folder, Image as ImageIcon, FileText, ArrowLeft, Download, Maximize2,
     Search, ChevronLeft, ChevronRight, MessageCircle,
-    PlayCircle, LogOut, CheckSquare, Square, X, Filter, Home, Link2
+    PlayCircle, LogOut, CheckSquare, Square, X, Filter, Home, Link2, Plus
 } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
 import { getPastelColor } from './utils/color';
 import ChatSidebar from './components/ChatSidebar';
+import AlbumPanel from './components/AlbumPanel';
+import AddToAlbumDialog from './components/AddToAlbumDialog';
 import { ReactionOverlay } from './components/ReactionOverlay';
 import SimpleVideoPlayer from './components/VideoPlayer';
 import StatsTags from './components/StatsTags';
@@ -229,6 +231,10 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
     const [stats, setStats] = useState<SessionStats | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    // Ref to track sidebar state inside socket callbacks without reconnecting
+    const isSidebarOpenRef = useRef(isSidebarOpen);
+    useEffect(() => { isSidebarOpenRef.current = isSidebarOpen; }, [isSidebarOpen]);
+    const [showAddToAlbumDialog, setShowAddToAlbumDialog] = useState(false);
     const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
     const [previewPath, setPreviewPath] = useState<string | null>(null);
     const [viewerSnapshot, setViewerSnapshot] = useState<SessionItem[]>([]);
@@ -240,6 +246,7 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
     const [typingUser, setTypingUser] = useState<string | null>(null);
     const [linkedImages, setLinkedImages] = useState<string[]>([]);
     const socketRef = useRef<Socket | null>(null);
+    const [socketInstance, setSocketInstance] = useState<Socket | null>(null);
     const [mySocketId, setMySocketId] = useState<string | null>(null);
 
     // Voice room hook
@@ -370,6 +377,7 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
             autoConnect: true
         });
         socketRef.current = socket;
+        setSocketInstance(socket);
 
         // Join session on connect/reconnect
         const joinSession = () => {
@@ -405,6 +413,41 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
                 if (prev.some(m => m.id === msg.id)) return prev;
                 return [...prev, msg];
             });
+            // Update unread status if sidebar is closed
+            if (!isSidebarOpenRef.current) {
+                notifications.setHasUnreadMessages(true);
+            }
+        });
+
+        // Call Notifications
+        socket.on('voice-started', ({ host }: { host: { username: string } }) => {
+            if (host.username !== username) {
+                notifications.addToast({
+                    title: 'Voice Chat Started',
+                    message: `${host.username} started a voice chat`,
+                    type: 'info',
+                    duration: 5000,
+                    action: () => {
+                        setIsSidebarOpen(true);
+                        setTimeout(() => voiceRoom.joinVoice(), 500);
+                    }
+                });
+            }
+        });
+
+        socket.on('video-started', ({ host }: { host: { username: string } }) => {
+            if (host.username !== username) {
+                notifications.addToast({
+                    title: 'Video Chat Started',
+                    message: `${host.username} started a video call`,
+                    type: 'info',
+                    duration: 5000,
+                    action: () => {
+                        setIsSidebarOpen(true);
+                        // Optional: auto-join or just open sidebar
+                    }
+                });
+            }
         });
         socket.on('typing-update', ({ username: u, isTyping }: { username: string, isTyping: boolean }) => setTypingUser(isTyping ? u : null));
         socket.on('history-cleared', () => setMessages([]));
@@ -766,7 +809,20 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
                                     Attach to Chat ({Math.min(selectedPaths.filter(p => /\.(jpg|jpeg|png|webp|gif)$/i.test(p)).length, 5)})
                                 </Button>
                             )}
-                            <Button className="bg-surface-1/80 backdrop-blur-sm text-text-primary hover:bg-surface-2 border border-border-custom/30 rounded-full h-9 px-4 text-sm font-medium shadow-sm" onClick={downloadSelection}>
+                            {/* Add to Album Action */}
+                            <Button
+                                className="bg-amber-500 text-white hover:bg-amber-600 rounded-xl h-9 px-4 text-sm font-medium shadow-sm transition-colors"
+                                onClick={() => {
+                                    if (selectedPaths.length > 0) {
+                                        setShowAddToAlbumDialog(true);
+                                    }
+                                }}
+                            >
+                                <Plus size={14} className="mr-2" />
+                                Add to Album
+                            </Button>
+
+                            <Button className="bg-white/10 backdrop-blur-sm text-white hover:bg-white/20 border border-white/20 rounded-full h-9 px-4 text-sm font-medium shadow-sm" onClick={downloadSelection}>
                                 <Download size={14} className="mr-2" />
                                 {selectedPaths.length === 1 ? 'Download' : 'ZIP'}
                             </Button>
@@ -954,8 +1010,29 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
                         </div>
                     </DialogContent>
                 </Dialog>
-            </div >
-        </div >
+
+                {/* Album Panel */}
+                <AlbumPanel
+                    socket={socketInstance}
+                    roomId={roomId}
+                    username={username}
+                    selectedPaths={selectedPaths}
+                    onAddToAlbum={(albumId: string, paths: string[]) => {
+                        console.log('Added to album', albumId, paths);
+                    }}
+                    onClearSelection={() => setSelectedPaths([])}
+                    onPreview={setPreviewPath}
+                    isMobile={false}
+                />
+            </div>
+            <AddToAlbumDialog
+                open={showAddToAlbumDialog}
+                onOpenChange={setShowAddToAlbumDialog}
+                socket={socketInstance}
+                selectedPaths={selectedPaths}
+                onClearSelection={() => setSelectedPaths([])}
+            />
+        </div>
     );
 };
 

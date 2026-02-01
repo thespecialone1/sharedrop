@@ -3,14 +3,19 @@ import OwnerApp from './owner/OwnerApp'
 import GuestApp from './guest/GuestApp'
 
 function App() {
-    const [isElectron, setIsElectron] = useState(false)
+    const [isElectron, setIsElectron] = useState<null | boolean>(null)
 
     useEffect(() => {
-        // Check if electronAPI is available in window
         if (window.electronAPI) {
             setIsElectron(true)
+        } else {
+            setIsElectron(false)
         }
     }, [])
+
+    if (isElectron === null) {
+        return null
+    }
 
     return isElectron ? <OwnerApp /> : <GuestApp />
 }

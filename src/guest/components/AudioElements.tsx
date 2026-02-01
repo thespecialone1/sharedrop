@@ -21,16 +21,26 @@ const AudioElements: React.FC<AudioElementsProps> = ({ streams }) => {
                 audio.autoplay = true;
                 audio.setAttribute('playsinline', 'true');
                 // Hidden, we only need audio playback
-                audio.style.display = 'none';
+                // Avoid display: none as it blocks playback on some browsers
+                audio.style.position = 'fixed';
+                audio.style.top = '-10000px';
+                audio.style.left = '-10000px';
+                audio.style.opacity = '0';
+                audio.style.pointerEvents = 'none';
+
                 document.body.appendChild(audio);
                 audioRefs.current.set(socketId, audio);
+                console.log(`[AudioElements] Created audio element for ${socketId}`);
             }
             if (audio.srcObject !== stream) {
+                console.log(`[AudioElements] Attaching stream to ${socketId}`, stream.id);
                 audio.srcObject = stream;
                 // Try to play (may require user gesture on mobile)
-                audio.play().catch(e => {
-                    console.warn('Audio autoplay blocked:', e);
-                });
+                audio.play()
+                    .then(() => console.log(`[AudioElements] Playing ${socketId}`))
+                    .catch(e => {
+                        console.warn('Audio autoplay blocked:', e);
+                    });
             }
         });
 

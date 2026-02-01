@@ -74,6 +74,8 @@ export interface IElectronAPI {
 
     // App info
     getAppVersion: () => Promise<string>;
+    getServerPort: () => Promise<{ success: boolean; port?: number; error?: string }>;
+    onAlbumUpdate: (callback: () => void) => () => void;
 
     // Session Control (Owner)
     onSessionMembersUpdate: (callback: (data: {
@@ -89,6 +91,69 @@ export interface IElectronAPI {
     banUser: (sessionId: string, canonicalUsername: string, reason?: string, scope?: 'session' | 'global') => Promise<{ success: boolean; error?: string }>;
     unbanUser: (sessionId: string, canonicalUsername: string, scope?: 'session' | 'global') => Promise<{ success: boolean; error?: string }>;
     getBannedUsers: (sessionId: string) => Promise<{ success: boolean; bans?: { session: string[]; tempKicked: string[]; global: any[] }; error?: string }>;
+
+    // Album management
+    getAlbums: (sessionId: string) => Promise<{ success: boolean; albums?: Album[]; error?: string }>;
+    createAlbum: (sessionId: string, name: string, type: string) => Promise<{ success: boolean; album?: Album; error?: string }>;
+    approveAlbum: (sessionId: string, albumId: string) => Promise<{ success: boolean; album?: Album; error?: string }>;
+    lockAlbum: (sessionId: string, albumId: string, locked: boolean) => Promise<{ success: boolean; album?: Album; error?: string }>;
+    deleteAlbum: (sessionId: string, albumId: string) => Promise<{ success: boolean; error?: string }>;
+    addAlbumItem: (sessionId: string, albumId: string, filePath: string, metadata?: { favorite?: boolean; note?: string; coverRole?: string }) => Promise<{ success: boolean; item?: AlbumItem; error?: string }>;
+    removeAlbumItem: (sessionId: string, itemId: string) => Promise<{ success: boolean; error?: string }>;
+    updateAlbumItem: (sessionId: string, itemId: string, updates: { favorite?: boolean; note?: string; coverRole?: string }) => Promise<{ success: boolean; item?: AlbumItem; error?: string }>;
+    exportAlbums: (sessionId: string) => Promise<{ success: boolean; data?: AlbumExport; error?: string }>;
+
+    // Recovery
+    checkRecovery: (folderPath: string) => Promise<{ hasRecovery: boolean; data?: any }>;
+    resumeCollaboration: (folderPath: string, newSessionId: string) => Promise<{ success: boolean; migrated?: any; error?: string }>;
+    startFresh: (sessionId: string) => Promise<{ success: boolean; error?: string }>;
+}
+
+export interface Album {
+    id: string;
+    name: string;
+    type: string | null;
+    status: string;
+    locked: number;
+    created_by: string;
+    created_at: number;
+    approved_by: string | null;
+    items?: AlbumItem[];
+}
+
+export interface AlbumItem {
+    id: string;
+    album_id: string;
+    file_path: string;
+    favorite: number;
+    note: string;
+    cover_role: string;
+    added_by: string;
+    added_at: number;
+}
+
+export interface AlbumExport {
+    sessionId: string;
+    folderPath: string;
+    exportedAt: number;
+    albums: Array<{
+        id: string;
+        name: string;
+        type: string | null;
+        status: string;
+        locked: boolean;
+        createdBy: string;
+        createdAt: number;
+        approvedBy: string | null;
+        items: Array<{
+            path: string;
+            favorite: boolean;
+            note: string;
+            coverRole: string;
+            addedBy: string;
+            addedAt: number;
+        }>;
+    }>;
 }
 
 declare global {

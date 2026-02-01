@@ -26,7 +26,8 @@ const VideoStream = ({ stream, isLocal, username, isMuted }: { stream: MediaStre
                     autoPlay
                     playsInline
                     muted={isLocal} // Always mute local video to prevent echo
-                    className={`w-full h-full object-cover ${isLocal ? 'scale-x-[-1]' : ''}`}
+                    className="w-full h-xsfull object-cover"
+                    style={{ transform: isLocal ? 'scaleX(-1)' : 'none' }}
                 />
             ) : (
                 <div className="w-full h-full flex items-center justify-center text-slate-500">

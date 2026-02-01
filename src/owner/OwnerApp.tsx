@@ -2,9 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import {
     Folder, Play, Square, ExternalLink, Copy, Check, Trash2, Key,
-    MessageCircle, Clock, Users, MoreVertical, Plus, ChevronDown, ChevronRight
+    MessageCircle, Clock, Users, MoreVertical, Plus, ChevronDown, ChevronRight,
+    Image
 } from 'lucide-react';
 import {
     DropdownMenu,
@@ -15,6 +17,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { SessionRoster, Member } from './components/SessionRoster';
 import { BannedUsersDialog } from './components/BannedUsersDialog';
+import AlbumsTab from './components/AlbumsTab';
 // import { toast } from 'sonner'; 
 
 interface Session {
@@ -51,6 +54,7 @@ const OwnerApp = () => {
     const [deployError, setDeployError] = useState<string | null>(null);
     const [sessionMembers, setSessionMembers] = useState<Member[]>([]);
     const [showBans, setShowBans] = useState(false);
+    const [activeTab, setActiveTab] = useState<'sessions' | 'albums'>('sessions');
 
     useEffect(() => {
         loadSessions();
@@ -94,6 +98,23 @@ const OwnerApp = () => {
         setIsLoading(true);
         setDeployError(null);
         try {
+            const session = sessions.find(s => s.id === sessionId);
+            if (session) {
+                const recovery = await window.electronAPI.checkRecovery(session.folder_path);
+                if (recovery.hasRecovery && recovery.data?.session_id !== sessionId) {
+                    const resume = window.confirm(
+                        `Previous collaboration data found for this folder.\n\n` +
+                        `[OK] - Resume Collaboration\n` +
+                        `[Cancel] - Start Fresh`
+                    );
+                    if (resume) {
+                        await window.electronAPI.resumeCollaboration(session.folder_path, sessionId);
+                    } else {
+                        await window.electronAPI.startFresh(sessionId);
+                    }
+                }
+            }
+
             const result = await window.electronAPI.deploySession(sessionId);
             if (result.success) {
                 setActiveSession({
@@ -208,63 +229,74 @@ const OwnerApp = () => {
 
             <div className="flex-1 flex overflow-hidden">
                 {/* Left: Active Session */}
-                <div className="w-[55%] p-4 flex flex-col">
+                <div className="w-[45%] p-4 flex flex-col border-r border-slate-200 bg-white">
                     <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Active Session</div>
 
                     {activeSession?.active && activeSessionData ? (
-                        <div className="flex-1 bg-white rounded-xl border border-slate-200 p-4 space-y-4">
+                        <div className="flex-1 space-y-4">
                             {/* Session Info */}
-                            <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-                                    <Folder size={20} className="text-green-600" />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                    <p className="font-semibold text-sm text-slate-800 truncate">{activeSessionData.folder_name}</p>
-                                    <div className="flex items-center gap-3 text-[10px] text-slate-500">
-                                        <span className="flex items-center gap-1"><Users size={10} /> {activeSessionData.usersInvolved?.length || 0}</span>
-                                        <span className="flex items-center gap-1"><MessageCircle size={10} /> {activeSessionData.messageCount}</span>
+                            <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+                                        <Folder size={20} className="text-green-600" />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                        <p className="font-semibold text-sm text-slate-800 truncate">{activeSessionData.folder_name}</p>
+                                        <div className="flex items-center gap-3 text-[10px] text-slate-500">
+                                            <span className="flex items-center gap-1"><Users size={10} /> {activeSessionData.usersInvolved?.length || 0}</span>
+                                            <span className="flex items-center gap-1"><MessageCircle size={10} /> {activeSessionData.messageCount}</span>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
 
-                            {/* Credentials */}
-                            <div className="space-y-2">
-                                <div className="flex items-center gap-2">
-                                    <div className="flex-1 bg-slate-50 px-3 py-2 rounded-lg text-xs font-mono text-slate-600 truncate border">
-                                        {activeSession.tunnelUrl}
+                                {/* Credentials */}
+                                <div className="space-y-2">
+                                    <div className="flex items-center gap-2">
+                                        <div className="flex-1 bg-slate-50 px-3 py-2 rounded-lg text-xs font-mono text-slate-600 truncate border">
+                                            {activeSession.tunnelUrl}
+                                        </div>
+                                        <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => copyToClipboard(activeSession.tunnelUrl!, 'link')}>
+                                            {copiedLink ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+                                        </Button>
                                     </div>
-                                    <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => copyToClipboard(activeSession.tunnelUrl!, 'link')}>
-                                        {copiedLink ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+                                    <div className="flex items-center gap-2">
+                                        <div className="flex-1 bg-slate-50 px-3 py-2 rounded-lg text-lg font-mono tracking-[0.2em] text-center border text-slate-800">
+                                            {activeSession.password}
+                                        </div>
+                                        <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => copyToClipboard(activeSession.password!, 'pass')}>
+                                            {copiedPass ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+                                        </Button>
+                                    </div>
+                                </div>
+
+                                {/* Actions */}
+                                <div className="flex gap-2 pt-2">
+                                    <Button className="flex-1 h-9 text-xs bg-blue-600 hover:bg-blue-700 rounded-lg" onClick={handleOpenInBrowser}>
+                                        <ExternalLink size={14} className="mr-1.5" />
+                                        Open
+                                    </Button>
+                                    <Button variant="destructive" className="h-9 px-4 text-xs rounded-lg" onClick={handleStop} disabled={isLoading}>
+                                        <Square size={12} className="mr-1.5" />
+                                        Stop
                                     </Button>
                                 </div>
-                                <div className="flex items-center gap-2">
-                                    <div className="flex-1 bg-slate-50 px-3 py-2 rounded-lg text-lg font-mono tracking-[0.2em] text-center border text-slate-800">
-                                        {activeSession.password}
-                                    </div>
-                                    <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => copyToClipboard(activeSession.password!, 'pass')}>
-                                        {copiedPass ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
-                                    </Button>
-                                </div>
+                                <Button variant="outline" className="w-full h-8 text-xs" onClick={() => setShowBans(true)}>
+                                    <Users size={12} className="mr-1.5" />
+                                    Manage Users
+                                </Button>
                             </div>
 
-                            {/* Actions */}
-                            <div className="flex gap-2 pt-2">
-                                <Button className="flex-1 h-9 text-xs bg-blue-600 hover:bg-blue-700 rounded-lg" onClick={handleOpenInBrowser}>
-                                    <ExternalLink size={14} className="mr-1.5" />
-                                    Open in Browser
-                                </Button>
-                                <Button variant="destructive" className="h-9 px-4 text-xs rounded-lg" onClick={handleStop} disabled={isLoading}>
-                                    <Square size={12} className="mr-1.5" />
-                                    Stop
-                                </Button>
+                            {/* Active Members */}
+                            <div className="flex-1 overflow-hidden min-h-0">
+                                <SessionRoster
+                                    members={sessionMembers}
+                                    onKick={(m) => setConfirmDialog({ type: 'kick', sessionId: activeSession.sessionId!, targetMember: m })}
+                                    onBan={(m, scope) => setConfirmDialog({ type: 'ban', sessionId: activeSession.sessionId!, targetMember: m, banScope: scope })}
+                                />
                             </div>
-                            <Button variant="outline" className="w-full h-8 text-xs" onClick={() => setShowBans(true)}>
-                                <Users size={12} className="mr-1.5" />
-                                Manage Users
-                            </Button>
                         </div>
                     ) : (
-                        <div className="flex-1 bg-white rounded-xl border border-slate-200 flex flex-col items-center justify-center p-6">
+                        <div className="flex-1 flex flex-col items-center justify-center">
                             <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center mb-4">
                                 <Folder size={28} className="text-slate-400" />
                             </div>
@@ -282,91 +314,107 @@ const OwnerApp = () => {
                             )}
                         </div>
                     )}
-
-                    {activeSession?.active && (
-                        <div className="flex-1 mt-4 overflow-hidden min-h-0">
-                            <SessionRoster
-                                members={sessionMembers}
-                                onKick={(m) => setConfirmDialog({ type: 'kick', sessionId: activeSession.sessionId!, targetMember: m })}
-                                onBan={(m, scope) => setConfirmDialog({ type: 'ban', sessionId: activeSession.sessionId!, targetMember: m, banScope: scope })}
-                            />
-                        </div>
-                    )}
                 </div>
 
-                {/* Right: Session History */}
-                <div className="w-[45%] border-l border-slate-200 bg-white flex flex-col">
-                    <div className="flex-shrink-0 px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Session History</div>
-                        <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{historySessions.length}</span>
-                    </div>
+                {/* Right: Tabs Content */}
+                <div className="w-[55%] bg-slate-50 flex flex-col">
+                    <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'sessions' | 'albums')} className="flex-1 flex flex-col">
+                        <div className="flex-shrink-0 px-4 py-2 bg-white border-b border-slate-200">
+                            <TabsList className="bg-slate-100">
+                                <TabsTrigger value="sessions" className="text-xs">
+                                    <Clock size={12} className="mr-1.5" />
+                                    Sessions
+                                </TabsTrigger>
+                                <TabsTrigger value="albums" className="text-xs">
+                                    <Image size={12} className="mr-1.5" />
+                                    Albums
+                                </TabsTrigger>
+                            </TabsList>
+                        </div>
 
-                    <ScrollArea className="flex-1">
-                        <div className="p-2 space-y-1">
-                            {historySessions.map(session => (
-                                <div key={session.id} className="rounded-lg border border-slate-100 overflow-hidden">
-                                    {/* Header */}
-                                    <button
-                                        className="w-full px-3 py-2.5 flex items-center gap-2 hover:bg-slate-50 transition-colors"
-                                        onClick={() => setExpandedId(expandedId === session.id ? null : session.id)}
-                                    >
-                                        {expandedId === session.id ? <ChevronDown size={14} className="text-slate-400" /> : <ChevronRight size={14} className="text-slate-400" />}
-                                        <Folder size={14} className="text-amber-500" />
-                                        <span className="flex-1 text-left text-xs font-medium text-slate-700 truncate">{session.folder_name}</span>
-                                        <span className="text-[10px] text-slate-400">{formatDuration(session.total_duration_ms)}</span>
-                                    </button>
+                        <TabsContent value="sessions" className="flex-1 m-0 overflow-hidden">
+                            {/* Session History */}
+                            <div className="h-full bg-white flex flex-col">
+                                <div className="flex-shrink-0 px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+                                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Session History</div>
+                                    <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{historySessions.length}</span>
+                                </div>
 
-                                    {/* Expanded Details */}
-                                    {expandedId === session.id && (
-                                        <div className="px-3 pb-3 pt-1 space-y-2 border-t border-slate-50 bg-slate-50/50">
-                                            <div className="grid grid-cols-2 gap-2 text-[10px]">
-                                                <div><span className="text-slate-400">Messages:</span> <span className="font-medium">{session.messageCount}</span></div>
-                                                <div><span className="text-slate-400">Users:</span> <span className="font-medium">{session.usersInvolved?.length || 0}</span></div>
-                                                <div className="col-span-2"><span className="text-slate-400">Created:</span> <span className="font-medium">{new Date(session.created_at).toLocaleDateString()}</span></div>
-                                                {session.usersInvolved && session.usersInvolved.length > 0 && (
-                                                    <div className="col-span-2">
-                                                        <span className="text-slate-400">Joined:</span>{' '}
-                                                        <span className="font-medium">{session.usersInvolved.join(', ')}</span>
+                                <ScrollArea className="flex-1">
+                                    <div className="p-2 space-y-1">
+                                        {historySessions.map(session => (
+                                            <div key={session.id} className="rounded-lg border border-slate-100 overflow-hidden">
+                                                <button
+                                                    className="w-full px-3 py-2.5 flex items-center gap-2 hover:bg-slate-50 transition-colors"
+                                                    onClick={() => setExpandedId(expandedId === session.id ? null : session.id)}
+                                                >
+                                                    {expandedId === session.id ? <ChevronDown size={14} className="text-slate-400" /> : <ChevronRight size={14} className="text-slate-400" />}
+                                                    <Folder size={14} className="text-amber-500" />
+                                                    <span className="flex-1 text-left text-xs font-medium text-slate-700 truncate">{session.folder_name}</span>
+                                                    <span className="text-[10px] text-slate-400">{formatDuration(session.total_duration_ms)}</span>
+                                                </button>
+
+                                                {expandedId === session.id && (
+                                                    <div className="px-3 pb-3 pt-1 space-y-2 border-t border-slate-50 bg-slate-50/50">
+                                                        <div className="grid grid-cols-2 gap-2 text-[10px]">
+                                                            <div><span className="text-slate-400">Messages:</span> <span className="font-medium">{session.messageCount}</span></div>
+                                                            <div><span className="text-slate-400">Users:</span> <span className="font-medium">{session.usersInvolved?.length || 0}</span></div>
+                                                            <div className="col-span-2"><span className="text-slate-400">Created:</span> <span className="font-medium">{new Date(session.created_at).toLocaleDateString()}</span></div>
+                                                            {session.usersInvolved && session.usersInvolved.length > 0 && (
+                                                                <div className="col-span-2">
+                                                                    <span className="text-slate-400">Joined:</span>{' '}
+                                                                    <span className="font-medium">{session.usersInvolved.join(', ')}</span>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                        <div className="flex gap-1.5 pt-1">
+                                                            <Button size="sm" className="h-7 text-[10px] flex-1 bg-green-600 hover:bg-green-700 rounded" onClick={() => handleDeploy(session.id)} disabled={isLoading}>
+                                                                <Play size={10} className="mr-1" /> Redeploy
+                                                            </Button>
+                                                            <DropdownMenu>
+                                                                <DropdownMenuTrigger asChild>
+                                                                    <Button size="icon" variant="outline" className="h-7 w-7 rounded">
+                                                                        <MoreVertical size={12} />
+                                                                    </Button>
+                                                                </DropdownMenuTrigger>
+                                                                <DropdownMenuContent align="end" className="w-36">
+                                                                    <DropdownMenuItem onClick={() => handleRotatePassword(session.id)} className="text-xs">
+                                                                        <Key size={10} className="mr-2" /> Rotate Password
+                                                                    </DropdownMenuItem>
+                                                                    <DropdownMenuItem onClick={() => setConfirmDialog({ type: 'wipe', sessionId: session.id })} className="text-xs">
+                                                                        <MessageCircle size={10} className="mr-2" /> Wipe Chat
+                                                                    </DropdownMenuItem>
+                                                                    <DropdownMenuSeparator />
+                                                                    <DropdownMenuItem onClick={() => setConfirmDialog({ type: 'delete', sessionId: session.id })} className="text-xs text-red-600">
+                                                                        <Trash2 size={10} className="mr-2" /> Delete
+                                                                    </DropdownMenuItem>
+                                                                </DropdownMenuContent>
+                                                            </DropdownMenu>
+                                                        </div>
                                                     </div>
                                                 )}
                                             </div>
-                                            <div className="flex gap-1.5 pt-1">
-                                                <Button size="sm" className="h-7 text-[10px] flex-1 bg-green-600 hover:bg-green-700 rounded" onClick={() => handleDeploy(session.id)} disabled={isLoading}>
-                                                    <Play size={10} className="mr-1" /> Redeploy
-                                                </Button>
-                                                <DropdownMenu>
-                                                    <DropdownMenuTrigger asChild>
-                                                        <Button size="icon" variant="outline" className="h-7 w-7 rounded">
-                                                            <MoreVertical size={12} />
-                                                        </Button>
-                                                    </DropdownMenuTrigger>
-                                                    <DropdownMenuContent align="end" className="w-36">
-                                                        <DropdownMenuItem onClick={() => handleRotatePassword(session.id)} className="text-xs">
-                                                            <Key size={10} className="mr-2" /> Rotate Password
-                                                        </DropdownMenuItem>
-                                                        <DropdownMenuItem onClick={() => setConfirmDialog({ type: 'wipe', sessionId: session.id })} className="text-xs">
-                                                            <MessageCircle size={10} className="mr-2" /> Wipe Chat
-                                                        </DropdownMenuItem>
-                                                        <DropdownMenuSeparator />
-                                                        <DropdownMenuItem onClick={() => setConfirmDialog({ type: 'delete', sessionId: session.id })} className="text-xs text-red-600">
-                                                            <Trash2 size={10} className="mr-2" /> Delete
-                                                        </DropdownMenuItem>
-                                                    </DropdownMenuContent>
-                                                </DropdownMenu>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            ))}
+                                        ))}
 
-                            {historySessions.length === 0 && (
-                                <div className="text-center py-8 text-slate-400">
-                                    <Clock size={24} className="mx-auto mb-2 opacity-50" />
-                                    <p className="text-xs">No session history yet</p>
-                                </div>
-                            )}
-                        </div>
-                    </ScrollArea>
+                                        {historySessions.length === 0 && (
+                                            <div className="text-center py-8 text-slate-400">
+                                                <Clock size={24} className="mx-auto mb-2 opacity-50" />
+                                                <p className="text-xs">No session history yet</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </ScrollArea>
+                            </div>
+                        </TabsContent>
+
+                        <TabsContent value="albums" className="flex-1 m-0 overflow-hidden">
+                            <AlbumsTab
+                                sessionId={activeSession?.sessionId || null}
+                                activeSession={activeSessionData || null}
+                                allSessions={sessions}
+                            />
+                        </TabsContent>
+                    </Tabs>
                 </div>
             </div>
 

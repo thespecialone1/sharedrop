@@ -9,6 +9,7 @@ import { Server } from 'socket.io';
 import http from 'http';
 import ChatStore from './chat-store.js';
 import SessionStore from './session-store.js';
+import AlbumStore from './album-store.js';
 import { generateZip } from './zip.js';
 import { spawn } from 'child_process';
 import { EventEmitter } from 'events';
@@ -98,6 +99,7 @@ class FileServer extends EventEmitter {
         // Use passed stores or null (some features may be limited)
         this.chatStore = stores.chatStore || null;
         this.sessionStore = stores.sessionStore || null;
+        this.albumStore = stores.albumStore || null;
 
         // Track connections for proper cleanup
         this.activeSockets = new Set();
@@ -241,6 +243,12 @@ class FileServer extends EventEmitter {
         const requireAuth = (req, res, next) => {
             // Allow certain read-only auth/room checks without full validation
             if (req.originalUrl.startsWith('/api/auth') || req.originalUrl.startsWith('/api/room')) {
+                return next();
+            }
+
+            // Allow Owner Header Auth (Fix for IPC calls)
+            const ownerPassword = req.headers['x-owner-password'];
+            if (ownerPassword && ownerPassword === this.password) {
                 return next();
             }
 
@@ -627,113 +635,191 @@ class FileServer extends EventEmitter {
                 res.json({ active: false });
             }
         });
-    }
 
-    emitVideoState(roomId) {
-        const videoRoom = this.videoRooms.get(roomId);
-        if (videoRoom) {
-            const participants = Array.from(videoRoom.participants).map(sid => {
-                const u = this.activeUsers.get(sid);
-                return {
-                    socketId: sid,
-                    username: u ? u.username : 'Unknown',
-                    isPresenter: sid === videoRoom.hostSocketId
-                };
+        // ========== ALBUM ROUTES ==========
+
+        const requireAlbumStore = (req, res, next) => {
+            if (!this.albumStore) {
+                return res.status(503).json({ error: 'Album feature unavailable' });
+            }
+            next();
+        };
+
+        this.app.get('/api/albums', requireAuth, requireAlbumStore, (req, res) => {
+            if (!this.albumStore) return res.status(503).json({ error: 'Unavailable' });
+            const albums = this.albumStore.getSessionAlbums(this.roomId);
+            const albumsWithItems = albums.map(album => ({
+                ...album,
+                items: this.albumStore.getAlbumItems(album.id)
+            }));
+            res.json({ albums: albumsWithItems });
+        });
+
+        this.app.post('/api/albums', requireAuth, requireAlbumStore, (req, res) => {
+            if (!this.albumStore) return res.status(503).json({ error: 'Unavailable' });
+
+            const { name, type, isOwner, createdBy } = req.body;
+            console.log('[FileServer] POST /api/albums:', { name, type, isOwner, createdBy, roomId: this.roomId });
+
+            // Use provided createdBy if owner, otherwise fallback to session or Guest
+            const username = (isOwner && createdBy) ? createdBy : (req.session.username || 'Guest');
+
+            if (!isOwner) {
+                console.warn('[FileServer] Album creation denied: Not owner');
+                return res.status(403).json({ error: 'Only owner can create albums' });
+            }
+
+            try {
+                const album = this.albumStore.createAlbum(this.roomId, name, type, username, 'approved', this.folderPath);
+                this.io.to(this.roomId).emit('album:sync', this.getAlbumsSyncData());
+                this.emit('albums-updated');
+                console.log('[FileServer] Album created, syncing...');
+
+                res.json({ success: true, album });
+            } catch (e) {
+                console.error('[FileServer] Album creation error:', e);
+                res.status(500).json({ error: e.message });
+            }
+        });
+
+        this.app.post('/api/albums/suggest', requireAuth, requireAlbumStore, (req, res) => {
+            if (!this.albumStore) return res.status(503).json({ error: 'Unavailable' });
+
+            const { name, type } = req.body;
+            const username = req.session.username || 'Guest';
+
+            const album = this.albumStore.createAlbum(this.roomId, name, type, username, 'suggested', this.folderPath);
+            this.io.to(this.roomId).emit('album:sync', this.getAlbumsSyncData());
+            this.emit('albums-updated');
+
+            res.json({ success: true, album });
+        });
+
+        this.app.post('/api/albums/:id/approve', requireOwner, requireAlbumStore, (req, res) => {
+            if (!this.albumStore) return res.status(503).json({ error: 'Unavailable' });
+            const album = this.albumStore.updateAlbum(req.params.id, {
+                status: 'approved',
+                approvedBy: 'owner'
             });
+            this.io.to(this.roomId).emit('album:sync', this.getAlbumsSyncData());
+            this.emit('albums-updated');
+            res.json({ success: true, album });
+        });
 
-            this.io.to(roomId).emit('video-state', {
-                roomId,
-                active: true,
-                hostSocketId: videoRoom.hostSocketId,
-                participants
-            });
-        } else {
-            this.io.to(roomId).emit('video-state', { roomId, active: false, participants: [] });
-        }
-    }
+        this.app.post('/api/albums/:id/lock', requireOwner, requireAlbumStore, (req, res) => {
+            if (!this.albumStore) return res.status(503).json({ error: 'Unavailable' });
+            const { locked } = req.body;
+            const album = this.albumStore.updateAlbum(req.params.id, { locked });
+            this.io.to(this.roomId).emit('album:sync', this.getAlbumsSyncData());
+            this.emit('albums-updated');
+            res.json({ success: true, album });
+        });
 
-    ffmpegPreview(fullPath, cacheKey, res) {
-        res.set('Content-Type', 'image/jpeg');
+        this.app.delete('/api/albums/:id', requireOwner, requireAlbumStore, (req, res) => {
+            if (!this.albumStore) return res.status(503).json({ error: 'Unavailable' });
+            const success = this.albumStore.deleteAlbum(req.params.id);
+            this.io.to(this.roomId).emit('album:sync', this.getAlbumsSyncData());
+            this.emit('albums-updated');
+            res.json({ success });
+        });
 
-        // Safety: Only attempt FFmpeg on supported video/image types
-        const ext = path.extname(fullPath).toLowerCase();
-        const supported = ['.mp4', '.mov', '.webm', '.avi', '.mkv', '.m4v', '.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.tiff'];
-        if (!supported.includes(ext)) {
-            return res.send(PLACEHOLDER_JPG);
-        }
+        this.app.post('/api/albums/:id/items', requireAuth, requireAlbumStore, (req, res) => {
+            if (!this.albumStore) return res.status(503).json({ error: 'Unavailable' });
 
-        let finished = false;
+            const { filePath, metadata } = req.body;
+            const username = req.session.username || 'Guest';
+            const album = this.albumStore.getAlbum(req.params.id);
 
-        const ffmpeg = spawn(ffmpegPath, [
-            '-i', fullPath, '-vf', 'scale=400:-1', '-frames:v', '1', '-f', 'image2', '-q:v', '3', 'pipe:1'
-        ]);
-
-        // Timeout after 10 seconds
-        const timeout = setTimeout(() => {
-            if (!finished) {
-                finished = true;
-                console.log('FFmpeg preview timeout for:', path.basename(fullPath));
-                try { ffmpeg.kill('SIGKILL'); } catch (e) { }
-                if (!res.headersSent) res.send(PLACEHOLDER_JPG);
+            if (!album) {
+                return res.status(404).json({ error: 'Album not found' });
             }
-        }, 10000);
 
-        const chunks = [];
-        ffmpeg.stdout.on('data', (chunk) => chunks.push(chunk));
-        ffmpeg.stdout.on('end', () => {
-            if (finished) return;
-            finished = true;
-            clearTimeout(timeout);
-            const buf = Buffer.concat(chunks);
-            if (buf.length > 100) {
-                saveToCacheAsync(cacheKey, buf);
-                res.send(buf);
-            } else {
-                res.send(PLACEHOLDER_JPG);
+            if (album.locked) {
+                return res.status(403).json({ error: 'Album is locked' });
             }
-        });
-        ffmpeg.stderr.on('data', (data) => {
-            // Log FFmpeg errors for debugging
-            const msg = data.toString();
-            if (msg.includes('Error') || msg.includes('error')) {
-                console.log('FFmpeg stderr:', msg.slice(0, 200));
-            }
-        });
-        ffmpeg.on('error', (e) => {
-            if (finished) return;
-            finished = true;
-            clearTimeout(timeout);
-            console.error('FFmpeg error:', e.message);
-            if (!res.headersSent) res.send(PLACEHOLDER_JPG);
-        });
-        ffmpeg.on('close', (code) => {
-            if (finished) return;
-            finished = true;
-            clearTimeout(timeout);
-            if (code !== 0 && !res.headersSent) res.send(PLACEHOLDER_JPG);
-        });
-    }
 
-    ffmpegVideoThumb(fullPath, cacheKey, res) {
-        res.set('Content-Type', 'image/jpeg');
-        const ffmpeg = spawn(ffmpegPath, [
-            '-i', fullPath, '-ss', '00:00:01', '-vframes', '1', '-f', 'image2', '-vf', 'scale=400:-1', 'pipe:1'
-        ]);
-        const chunks = [];
-        ffmpeg.stdout.on('data', (chunk) => chunks.push(chunk));
-        ffmpeg.stdout.on('end', () => {
-            const buf = Buffer.concat(chunks);
-            if (buf.length > 100) {
-                saveToCacheAsync(cacheKey, buf);
-                res.send(buf);
-            } else {
-                res.send(PLACEHOLDER_JPG);
+            if (album.status === 'suggested' && album.created_by !== username) {
+                return res.status(403).json({ error: 'Cannot add to unapproved album' });
             }
+
+            const item = this.albumStore.addItem(req.params.id, filePath, username, metadata);
+            this.io.to(this.roomId).emit('album:sync', this.getAlbumsSyncData());
+            this.emit('albums-updated');
+
+            res.json({ success: true, item });
         });
-        ffmpeg.stderr.on('data', () => { });
-        ffmpeg.on('error', () => res.send(PLACEHOLDER_JPG));
-        ffmpeg.on('close', (code) => {
-            if (code !== 0 && !res.headersSent) res.send(PLACEHOLDER_JPG);
+
+        this.app.delete('/api/albums/items/:itemId', requireAuth, requireAlbumStore, (req, res) => {
+            if (!this.albumStore) return res.status(503).json({ error: 'Unavailable' });
+
+            const item = this.albumStore.getItem(req.params.itemId);
+            if (!item) {
+                return res.status(404).json({ error: 'Item not found' });
+            }
+
+            const album = this.albumStore.getAlbum(item.album_id);
+            const username = req.session.username || 'Guest';
+
+            if (album.locked) {
+                return res.status(403).json({ error: 'Album is locked' });
+            }
+
+            if (album.created_by !== username && item.added_by !== username) {
+                return res.status(403).json({ error: 'Cannot remove this item' });
+            }
+
+            const success = this.albumStore.removeItem(req.params.itemId);
+            this.io.to(this.roomId).emit('album:sync', this.getAlbumsSyncData());
+            this.emit('albums-updated');
+
+            res.json({ success });
+        });
+
+        this.app.patch('/api/albums/items/:itemId', requireAuth, requireAlbumStore, (req, res) => {
+            if (!this.albumStore) return res.status(503).json({ error: 'Unavailable' });
+
+            const item = this.albumStore.getItem(req.params.itemId);
+            if (!item) {
+                return res.status(404).json({ error: 'Item not found' });
+            }
+
+            const album = this.albumStore.getAlbum(item.album_id);
+            const username = req.session.username || 'Guest';
+
+            if (album.locked) {
+                return res.status(403).json({ error: 'Album is locked' });
+            }
+
+            if (album.status === 'suggested' && album.created_by !== username) {
+                return res.status(403).json({ error: 'Cannot edit unapproved album' });
+            }
+
+            const { favorite, note, coverRole } = req.body;
+            const updates = {};
+            if (favorite !== undefined) updates.favorite = favorite;
+            if (note !== undefined) updates.note = note;
+            if (coverRole !== undefined) updates.coverRole = coverRole;
+
+            const updatedItem = this.albumStore.updateItem(req.params.itemId, updates);
+            this.io.to(this.roomId).emit('album:sync', this.getAlbumsSyncData());
+            this.emit('albums-updated');
+
+            res.json({ success: true, item: updatedItem });
+        });
+
+        this.app.post('/api/albums/export', requireOwner, requireAlbumStore, (req, res) => {
+            if (!this.albumStore) return res.status(503).json({ error: 'Unavailable' });
+            const exportData = this.albumStore.exportSession(this.roomId);
+            res.json(exportData);
+        });
+
+        this.app.get('/api/albums/recovery', requireOwner, (req, res) => {
+            const folderPath = req.query.folderPath;
+            if (!folderPath) {
+                return res.status(400).json({ error: 'folderPath required' });
+            }
+            const existing = this.albumStore ? this.albumStore.findByFolderPath(folderPath) : null;
+            res.json({ hasRecovery: !!existing, data: existing });
         });
     }
 
@@ -743,56 +829,16 @@ class FileServer extends EventEmitter {
                 .filter(u => u.roomId === roomId)
                 .map(u => u.username);
 
-            // --- Video Room Signaling ---
-
-            socket.on('voice-start', ({ isPtt }, cb) => {
-                const user = this.activeUsers.get(socket.id);
-                if (!user) return cb({ success: false, error: 'User not found' });
-                const roomId = user.roomId;
-
-                // Enforce Exclusivity: No voice if video is active
-                if (this.videoRooms.has(roomId)) {
-                    return cb({ success: false, error: 'Video call currently active. Join that instead.' });
-                }
-
-                if (this.voiceRooms.has(roomId)) {
-                    return cb({ success: false, error: 'Room already active' });
-                }
-
-                this.voiceRooms.set(roomId, {
-                    hostSocketId: socket.id,
-                    hostUsername: user.username,
-                    participants: new Set([socket.id]),
-                    active: true,
-                    isPtt: isPtt,
-                    startedAt: Date.now()
-                });
-
-                // Broadcast to room
-                this.io.to(roomId).emit('voice-started', {
-                    roomId,
-                    hostSocketId: socket.id,
-                    hostUsername: user.username,
-                    isPtt: isPtt,
-                    startedAt: Date.now()
-                });
-
-                this.emitVoiceState(roomId);
-                cb({ success: true, hostSocketId: socket.id });
-            });
-
+            // Video Room Signaling
             socket.on('video-start', ({ }, cb) => {
                 const user = this.activeUsers.get(socket.id);
                 if (!user) return cb({ success: false, error: 'User not found' });
-
                 const roomId = user.roomId;
                 if (!roomId) return cb({ success: false, error: 'No room context' });
 
                 if (this.videoRooms.has(roomId)) {
                     return cb({ success: false, error: 'Video room already active' });
                 }
-
-                // Enforce Exclusivity: No video if voice is active
                 if (this.voiceRooms.has(roomId)) {
                     return cb({ success: false, error: 'Voice call currently active. Please stop voice first.' });
                 }
@@ -804,7 +850,6 @@ class FileServer extends EventEmitter {
                     startedAt: Date.now()
                 });
 
-                // Broadcast to room
                 this.io.to(roomId).emit('video-started', {
                     roomId,
                     host: { socketId: socket.id, username: user.username },
@@ -819,25 +864,20 @@ class FileServer extends EventEmitter {
                 const user = this.activeUsers.get(socket.id);
                 if (!user) return cb({ success: false, error: 'User not found' });
                 const roomId = user.roomId;
-
                 const videoRoom = this.videoRooms.get(roomId);
                 if (!videoRoom) return cb({ success: false, error: 'No active video room' });
 
-                // Check bans/kicks again just in case
                 if (this.sessionBans.has(user.canonicalUsername) || this.tempKickedUsers.has(user.canonicalUsername)) {
                     return cb({ success: false, error: 'Access Denied' });
                 }
 
                 videoRoom.participants.add(socket.id);
-
                 this.io.to(roomId).emit('video-joined', {
                     roomId,
                     participant: { socketId: socket.id, username: user.username }
                 });
-
                 this.emitVideoState(roomId);
 
-                // Return current participants to the joiner
                 const currentParticipants = Array.from(videoRoom.participants).map(sid => {
                     const u = this.activeUsers.get(sid);
                     return { socketId: sid, username: u ? u.username : 'Unknown' };
@@ -859,14 +899,7 @@ class FileServer extends EventEmitter {
                         participant: { socketId: socket.id, username: user.username }
                     });
 
-                    if (videoRoom.participants.size === 0) {
-                        this.videoRooms.delete(roomId);
-                        this.io.to(roomId).emit('video-ended', { roomId, endedAt: Date.now() });
-                    } else if (socket.id === videoRoom.hostSocketId) {
-                        // Host left? For P2P MVP, maybe just end it or reassign? 
-                        // For now, let's keep it running if others are there, OR end it.
-                        // Let's end it if host leaves to simulate "Meeting Owner" logic for now, or assume next oldest is host.
-                        // Simplest MVP: Host leaves = Room Ends.
+                    if (videoRoom.participants.size === 0 || socket.id === videoRoom.hostSocketId) {
                         this.videoRooms.delete(roomId);
                         this.io.to(roomId).emit('video-ended', { roomId, endedAt: Date.now() });
                     } else {
@@ -898,22 +931,12 @@ class FileServer extends EventEmitter {
                 });
             });
 
-            socket.on('video-restart', ({ toSocketId, sdp }) => {
-                this.io.to(toSocketId).emit('video-restart', {
-                    fromSocketId: socket.id,
-                    sdp
-                });
-            });
-
             socket.on('video-get-state', () => {
                 const user = this.activeUsers.get(socket.id);
                 if (user && user.roomId) {
                     this.emitVideoState(user.roomId);
                 }
             });
-
-            // --- End Video Room Signaling ---
-
 
             socket.on('check-username', ({ name, roomId }, cb) => {
                 const room = roomId || this.roomId;
@@ -925,32 +948,24 @@ class FileServer extends EventEmitter {
                 const room = roomId || this.roomId;
                 const canonicalName = (username || '').trim().toLowerCase();
 
-                // 1. Validate Input
                 if (!canonicalName || canonicalName.length < 2) {
                     return socket.emit('join-error', { code: 'INVALID_NAME', message: 'Name too short' });
                 }
 
-                // 2. Check Bans
                 if (this.sessionBans.has(canonicalName)) {
                     return socket.emit('join-error', { code: 'BANNED', message: 'You are banned from this session.' });
-                }
-                if (this.sessionStore && this.sessionStore.isGloballyBanned(canonicalName)) {
-                    const banInfo = this.sessionStore.getGlobalBannedUser(canonicalName);
-                    return socket.emit('join-error', { code: 'BANNED', message: banInfo?.reason || 'You are globally banned.' });
                 }
                 if (this.tempKickedUsers.has(canonicalName)) {
                     return socket.emit('join-error', { code: 'KICKED', message: 'You were kicked from this session.' });
                 }
 
-                // 3. Check Uniqueness
                 const isTaken = Array.from(this.activeUsers.values()).some(u => u.roomId === room && u.canonicalUsername === canonicalName);
                 if (isTaken) {
                     return socket.emit('join-error', { code: 'USERNAME_TAKEN', message: 'Name already taken.' });
                 }
 
-                // 4. Success - Register User
                 const userObj = {
-                    username: username.trim(), // Keep original casing for display if possible, but we use canonical for logic
+                    username: username.trim(),
                     canonicalUsername: canonicalName,
                     color,
                     roomId: room,
@@ -961,10 +976,6 @@ class FileServer extends EventEmitter {
                 this.activeUsers.set(socket.id, userObj);
                 socket.join(room);
 
-                // Init notification preferences (default enabled)
-                socket.notificationOptOut = false;
-
-                // Track user in session for owner dashboard
                 if (this.sessionId) {
                     try {
                         this.sessionStore.addUserToSession(this.sessionId, userObj.username);
@@ -973,7 +984,6 @@ class FileServer extends EventEmitter {
                     }
                 }
 
-                // Emit updates
                 this.emitMembersUpdate(room);
 
                 const history = this.chatStore.getRoomMessages(room, 100).map(m => ({
@@ -988,13 +998,16 @@ class FileServer extends EventEmitter {
                 }));
                 socket.emit('chat-history', history);
 
-                // Legacy presence update (keep for guest compatibility if needed)
+                // Send initial album sync immediately
+                if (this.albumStore) {
+                    socket.emit('album:sync', this.getAlbumsSyncData());
+                }
+
                 const getPresenceList = (roomId) => Array.from(this.activeUsers.values())
                     .filter(u => u.roomId === roomId)
                     .map(u => u.username);
                 this.io.to(room).emit('presence-update', getPresenceList(room));
 
-                // Sync voice room status if one is active
                 const voiceRoom = this.voiceRooms.get(room);
                 if (voiceRoom) {
                     socket.emit('voice-started', {
@@ -1006,30 +1019,21 @@ class FileServer extends EventEmitter {
                 }
             });
 
-            // Enhanced send-message with reply and attachments support
             socket.on('send-message', (data, cb) => {
                 const user = this.activeUsers.get(socket.id);
                 if (!user) return;
 
-                // Support both old (string) and new (object) format
                 const text = typeof data === 'string' ? data : (data.text || '');
                 const replyTo = typeof data === 'object' ? data.replyTo : null;
                 const attachments = typeof data === 'object' ? data.attachments : null;
-
-                // Limit attachments to 5
                 const validAttachments = attachments && Array.isArray(attachments)
-                    ? attachments.filter(a => a).slice(0, 5) // Simple filter for nulls
-                    : null;
+                    ? attachments.filter(a => a).slice(0, 5) : null;
 
                 if ((!text || !text.trim()) && (!validAttachments || validAttachments.length === 0)) return;
 
                 const id = this.chatStore.saveMessage(
-                    user.roomId,
-                    user.username,
-                    user.color,
-                    text.trim(),
-                    replyTo ? parseInt(replyTo) : null,
-                    validAttachments
+                    user.roomId, user.username, user.color, text.trim(),
+                    replyTo ? parseInt(replyTo) : null, validAttachments
                 );
 
                 const msg = {
@@ -1042,7 +1046,7 @@ class FileServer extends EventEmitter {
                     attachments: validAttachments,
                     reactions: {}
                 };
-                // Notification: New Message
+
                 socket.to(user.roomId).emit('notification:new-message', {
                     sessionId: user.roomId,
                     messageId: String(id),
@@ -1055,7 +1059,6 @@ class FileServer extends EventEmitter {
                 if (cb) cb({ success: true, id: String(id) });
             });
 
-            // Reaction handling
             socket.on('react-message', ({ messageId, emoji }, cb) => {
                 const user = this.activeUsers.get(socket.id);
                 if (!user || !messageId || !emoji) return;
@@ -1067,20 +1070,10 @@ class FileServer extends EventEmitter {
                         messageId: String(messageId),
                         reactions
                     });
-
-                    // Notification: Reaction
-                    socket.to(user.roomId).emit('notification:reaction', {
-                        sessionId: user.roomId,
-                        messageId: String(messageId),
-                        by: { socketId: socket.id, username: user.username },
-                        type: emoji,
-                        sentAt: new Date().toISOString()
-                    });
                 }
                 if (cb) cb({ success });
             });
 
-            // Remove reaction
             socket.on('remove-reaction', ({ messageId }, cb) => {
                 const user = this.activeUsers.get(socket.id);
                 if (!user || !messageId) return;
@@ -1096,15 +1089,12 @@ class FileServer extends EventEmitter {
                 if (cb) cb({ success });
             });
 
-            // Delete message
             socket.on('delete-message', ({ messageId }, cb) => {
                 const user = this.activeUsers.get(socket.id);
                 if (!user || !messageId) return;
 
                 const msg = this.chatStore.getMessage(parseInt(messageId));
                 if (!msg) return cb && cb({ success: false, error: 'Message not found' });
-
-                // Only allow sender to delete (or owner logic if we had it, but strict sender is safe)
                 if (msg.username !== user.username) {
                     return cb && cb({ success: false, error: 'Unauthorized' });
                 }
@@ -1121,21 +1111,15 @@ class FileServer extends EventEmitter {
                 if (user) socket.to(user.roomId).emit('typing-update', { username: user.username, isTyping });
             });
 
-            // ========== VOICE ROOM SIGNALING ==========
-
-            // Start a voice room (only if none exists for this session)
+            // Voice Room Events
             socket.on('voice-start', (data, cb) => {
                 const user = this.activeUsers.get(socket.id);
                 if (!user) return cb?.({ success: false, error: 'Not authenticated' });
 
                 const room = user.roomId;
-                // Resuming host session?
-                // Check if there is an existing room where this user WAS the host
-                // Typically we'd check against a persistent ID, but username is our best proxy here + sessionId
                 const existingRoom = this.voiceRooms.get(room);
+
                 if (existingRoom && existingRoom.hostUsername === user.username) {
-                    // It's the previous host returning!
-                    console.log(`Host ${user.username} reconnected to voice room`);
                     if (existingRoom.disconnectTimeout) {
                         clearTimeout(existingRoom.disconnectTimeout);
                         existingRoom.disconnectTimeout = null;
@@ -1150,15 +1134,6 @@ class FileServer extends EventEmitter {
                         hostUsername: user.username,
                         participantCount: existingRoom.participants.size
                     });
-
-                    // Notification: Voice Started (Resumed)
-                    this.io.to(room).emit('notification:voice-started', {
-                        sessionId: room,
-                        host: { socketId: socket.id, username: user.username },
-                        startedAt: new Date().toISOString(),
-                        isResume: true
-                    });
-
                     this.broadcastVoiceState(room);
                     return;
                 }
@@ -1167,7 +1142,6 @@ class FileServer extends EventEmitter {
                     return cb?.({ success: false, error: 'Voice room already active' });
                 }
 
-                // Create new voice room
                 this.voiceRooms.set(room, {
                     hostSocketId: socket.id,
                     hostUsername: user.username,
@@ -1177,28 +1151,15 @@ class FileServer extends EventEmitter {
                     startTime: Date.now()
                 });
 
-                console.log(`Voice room started by ${user.username} in ${room}`);
-
-                // Notify all users in the room
                 this.io.to(room).emit('voice-started', {
                     roomId: room,
                     hostSocketId: socket.id,
                     hostUsername: user.username
                 });
-
-                // Notification: Voice Started
-                this.io.to(room).emit('notification:voice-started', {
-                    sessionId: room,
-                    host: { socketId: socket.id, username: user.username },
-                    startedAt: new Date(this.voiceRooms.get(room).startTime).toISOString()
-                });
-
                 this.broadcastVoiceState(room);
-
                 cb?.({ success: true, hostSocketId: socket.id });
             });
 
-            // Stop the voice room (host only)
             socket.on('voice-stop', (data, cb) => {
                 const user = this.activeUsers.get(socket.id);
                 if (!user) return cb?.({ success: false, error: 'Not authenticated' });
@@ -1209,36 +1170,16 @@ class FileServer extends EventEmitter {
                 if (!voiceRoom) {
                     return cb?.({ success: false, error: 'No active voice room' });
                 }
-
                 if (voiceRoom.hostSocketId !== socket.id) {
                     return cb?.({ success: false, error: 'Only the host can stop the voice room' });
                 }
 
-                console.log(`Voice room stopped by ${user.username} in ${room}`);
-
-                // Notify all users and delete room
                 this.io.to(room).emit('voice-stopped', { roomId: room });
-
-                // Notification: Voice Ended
-                this.io.to(room).emit('notification:voice-ended', {
-                    sessionId: room,
-                    endedAt: new Date().toISOString()
-                });
-
                 this.voiceRooms.delete(room);
-
-                // Broadcast empty/inactive state or just let the stopped event handle it?
-                // Ideally send a final state update saying "active: false" BEFORE deleting?
-                // Or deleting it means next getVoiceState returns null/false.
-                // We should broadcast to the room that state has changed.
-                // Since room is deleted, broadcastVoiceState(room) returns early.
-                // We need to manually emit inactive state.
                 this.io.to(room).emit('voice-state', { active: false, roomId: room, participantCount: 0 });
-
                 cb?.({ success: true });
             });
 
-            // Join an existing voice room
             socket.on('voice-join', (data, cb) => {
                 const user = this.activeUsers.get(socket.id);
                 if (!user) return cb?.({ success: false, error: 'Not authenticated' });
@@ -1249,40 +1190,26 @@ class FileServer extends EventEmitter {
                 if (!voiceRoom) {
                     return cb?.({ success: false, error: 'No active voice room' });
                 }
-
                 if (voiceRoom.participants.has(socket.id)) {
                     return cb?.({ success: false, error: 'Already in voice room' });
                 }
-
                 if (voiceRoom.locked && voiceRoom.hostSocketId !== socket.id) {
                     return cb?.({ success: false, error: 'Room is locked' });
                 }
 
-                // Check if this is the host returning
                 if (voiceRoom.hostUsername === user.username) {
-                    console.log(`Host ${user.username} returning to voice room via join`);
                     if (voiceRoom.disconnectTimeout) {
                         clearTimeout(voiceRoom.disconnectTimeout);
                         voiceRoom.disconnectTimeout = null;
                     }
                     voiceRoom.hostSocketId = socket.id;
-                    // Notify everyone that host is back/updated
                     this.io.to(room).emit('voice-started', {
                         roomId: room,
                         hostUsername: user.username,
                         participantCount: voiceRoom.participants.size + 1
                     });
-
-                    // Notification: Voice Started (Host Re-join via Join)
-                    this.io.to(room).emit('notification:voice-started', {
-                        sessionId: room,
-                        host: { socketId: socket.id, username: user.username },
-                        startedAt: new Date().toISOString(),
-                        isResume: true
-                    });
                 }
 
-                // Add to participants
                 voiceRoom.participants.add(socket.id);
                 const existingParticipants = Array.from(voiceRoom.participants)
                     .filter(id => id !== socket.id)
@@ -1291,14 +1218,10 @@ class FileServer extends EventEmitter {
                         return { socketId: id, username: u?.username || 'Unknown' };
                     });
 
-                console.log(`${user.username} joined voice room in ${room}`);
-
-                // Notify others about new participant
                 socket.to(room).emit('voice-joined', {
                     socketId: socket.id,
                     username: user.username
                 });
-
                 this.broadcastVoiceState(room);
 
                 cb?.({
@@ -1308,7 +1231,6 @@ class FileServer extends EventEmitter {
                 });
             });
 
-            // Leave the voice room
             socket.on('voice-leave', (data, cb) => {
                 const user = this.activeUsers.get(socket.id);
                 if (!user) return cb?.({ success: false, error: 'Not authenticated' });
@@ -1320,34 +1242,21 @@ class FileServer extends EventEmitter {
                     return cb?.({ success: false, error: 'Not in voice room' });
                 }
 
-                // If host leaves, stop the entire room
                 if (voiceRoom.hostSocketId === socket.id) {
-                    console.log(`Host ${user.username} left, stopping voice room in ${room}`);
                     this.io.to(room).emit('voice-stopped', { roomId: room });
-
-                    // Notification: Voice Ended
-                    this.io.to(room).emit('notification:voice-ended', {
-                        sessionId: room,
-                        endedAt: new Date().toISOString()
-                    });
-
                     this.voiceRooms.delete(room);
                     this.io.to(room).emit('voice-state', { active: false, roomId: room, participantCount: 0 });
                 } else {
-                    // Regular participant leaves
                     voiceRoom.participants.delete(socket.id);
-                    console.log(`${user.username} left voice room in ${room}`);
                     socket.to(room).emit('voice-left', {
                         socketId: socket.id,
                         username: user.username
                     });
                     this.broadcastVoiceState(room);
                 }
-
                 cb?.({ success: true });
             });
 
-            // HOST: End Voice
             socket.on('voice-end', (data, cb) => {
                 const user = this.activeUsers.get(socket.id);
                 if (!user) return cb?.({ success: false });
@@ -1355,25 +1264,18 @@ class FileServer extends EventEmitter {
                 const voiceRoom = this.voiceRooms.get(room);
 
                 if (voiceRoom && voiceRoom.hostSocketId === socket.id) {
-                    console.log(`Voice room ended by host ${user.username}`);
                     this.io.to(room).emit('voice-ended', { roomId: room });
                     this.voiceRooms.delete(room);
                     this.io.to(room).emit('voice-state', { active: false, roomId: room, participantCount: 0 });
-                    this.activeUsers.forEach(u => {
-                        // getPresenceList is a local helper, not a class method
-                        if (u.roomId === room) this.io.to(room).emit('presence-update', getPresenceList(room));
-                    });
                     cb?.({ success: true });
                 } else {
                     cb?.({ success: false, error: 'Not authorized' });
                 }
             });
 
-            // WebRTC signaling: forward offer
             socket.on('voice-offer', ({ toSocketId, sdp }) => {
                 const user = this.activeUsers.get(socket.id);
                 if (!user) return;
-
                 this.io.to(toSocketId).emit('voice-offer', {
                     fromSocketId: socket.id,
                     fromUsername: user.username,
@@ -1381,11 +1283,9 @@ class FileServer extends EventEmitter {
                 });
             });
 
-            // WebRTC signaling: forward answer
             socket.on('voice-answer', ({ toSocketId, sdp }) => {
                 const user = this.activeUsers.get(socket.id);
                 if (!user) return;
-
                 this.io.to(toSocketId).emit('voice-answer', {
                     fromSocketId: socket.id,
                     fromUsername: user.username,
@@ -1393,7 +1293,6 @@ class FileServer extends EventEmitter {
                 });
             });
 
-            // WebRTC signaling: forward ICE candidate
             socket.on('voice-ice-candidate', ({ toSocketId, candidate }) => {
                 this.io.to(toSocketId).emit('voice-ice-candidate', {
                     fromSocketId: socket.id,
@@ -1401,13 +1300,9 @@ class FileServer extends EventEmitter {
                 });
             });
 
-            // CRITICAL: WebRTC signaling for ICE Restart (network recovery)
-            // This allows peers to negotiate a new connection if the old one drops.
             socket.on('voice-restart', ({ toSocketId, sdp }) => {
                 const user = this.activeUsers.get(socket.id);
                 if (!user) return;
-
-                console.log(`Forwarding ICE restart from ${user.username} to ${toSocketId}`);
                 this.io.to(toSocketId).emit('voice-restart', {
                     fromSocketId: socket.id,
                     fromUsername: user.username,
@@ -1415,7 +1310,6 @@ class FileServer extends EventEmitter {
                 });
             });
 
-            // Owner actions
             socket.on('voice-lock', () => {
                 const user = this.activeUsers.get(socket.id);
                 if (!user) return;
@@ -1474,8 +1368,6 @@ class FileServer extends EventEmitter {
             socket.on('reaction', ({ type }) => {
                 const user = this.activeUsers.get(socket.id);
                 if (!user) return;
-
-                // Server authoritative broadcast (everyone including sender)
                 this.io.to(user.roomId).emit('reaction-broadcast', {
                     username: user.username,
                     color: user.color || this.getPastelColor(user.username),
@@ -1494,46 +1386,146 @@ class FileServer extends EventEmitter {
                 });
             });
 
-            // ========== END VOICE ROOM SIGNALING ==========
+            // Album Events
+            socket.on('album:get-sync', () => {
+                const user = this.activeUsers.get(socket.id);
+                if (!user || !this.albumStore) return;
+                socket.emit('album:sync', this.getAlbumsSyncData());
+            });
+
+            socket.on('album:create', ({ name, type, isOwner }, cb) => {
+                const user = this.activeUsers.get(socket.id);
+                if (!user || !this.albumStore) return cb?.({ success: false, error: 'Unavailable' });
+                if (!isOwner) {
+                    return cb?.({ success: false, error: 'Only owner can create albums' });
+                }
+                const album = this.albumStore.createAlbum(this.roomId, name, type, user.username, 'approved', this.folderPath);
+                this.io.to(this.roomId).emit('album:sync', this.getAlbumsSyncData());
+                this.emit('albums-updated');
+                cb?.({ success: true, album });
+            });
+
+            socket.on('album:suggest', ({ name, type }, cb) => {
+                const user = this.activeUsers.get(socket.id);
+                if (!user || !this.albumStore) return cb?.({ success: false, error: 'Unavailable' });
+                const album = this.albumStore.createAlbum(this.roomId, name, type, user.username, 'suggested', this.folderPath);
+                this.io.to(this.roomId).emit('album:sync', this.getAlbumsSyncData());
+                this.emit('albums-updated');
+                cb?.({ success: true, album });
+            });
+
+            socket.on('album:approve', ({ albumId }, cb) => {
+                const user = this.activeUsers.get(socket.id);
+                if (!user || !this.albumStore) return cb?.({ success: false, error: 'Unavailable' });
+                const album = this.albumStore.updateAlbum(albumId, {
+                    status: 'approved',
+                    approvedBy: user.username
+                });
+                this.io.to(this.roomId).emit('album:sync', this.getAlbumsSyncData());
+                this.emit('albums-updated');
+                cb?.({ success: true, album });
+            });
+
+            socket.on('album:lock', ({ albumId, locked }, cb) => {
+                const user = this.activeUsers.get(socket.id);
+                if (!user || !this.albumStore) return cb?.({ success: false, error: 'Unavailable' });
+                const album = this.albumStore.updateAlbum(albumId, { locked });
+                this.io.to(this.roomId).emit('album:sync', this.getAlbumsSyncData());
+                this.emit('albums-updated');
+                cb?.({ success: true, album });
+            });
+
+            socket.on('album:delete', ({ albumId }, cb) => {
+                const user = this.activeUsers.get(socket.id);
+                if (!user || !this.albumStore) return cb?.({ success: false, error: 'Unavailable' });
+                const album = this.albumStore.getAlbum(albumId);
+                if (!album) return cb?.({ success: false, error: 'Album not found' });
+                const success = this.albumStore.deleteAlbum(albumId);
+                this.io.to(this.roomId).emit('album:sync', this.getAlbumsSyncData());
+                this.emit('albums-updated');
+                cb?.({ success });
+            });
+
+            socket.on('album:item-add', ({ albumId, filePath, metadata }, cb) => {
+                const user = this.activeUsers.get(socket.id);
+                if (!user || !this.albumStore) return cb?.({ success: false, error: 'Unavailable' });
+                const album = this.albumStore.getAlbum(albumId);
+                if (!album) return cb?.({ success: false, error: 'Album not found' });
+                if (album.locked) {
+                    return cb?.({ success: false, error: 'Album is locked' });
+                }
+                if (album.status === 'suggested' && album.created_by !== user.username) {
+                    return cb?.({ success: false, error: 'Cannot add to unapproved album' });
+                }
+                const item = this.albumStore.addItem(albumId, filePath, user.username, metadata);
+                this.io.to(this.roomId).emit('album:sync', this.getAlbumsSyncData());
+                this.emit('albums-updated');
+                cb?.({ success: true, item });
+            });
+
+            socket.on('album:item-remove', ({ itemId }, cb) => {
+                const user = this.activeUsers.get(socket.id);
+                if (!user || !this.albumStore) return cb?.({ success: false, error: 'Unavailable' });
+                const item = this.albumStore.getItem(itemId);
+                if (!item) return cb?.({ success: false, error: 'Item not found' });
+                const album = this.albumStore.getAlbum(item.album_id);
+                if (album.locked) {
+                    return cb?.({ success: false, error: 'Album is locked' });
+                }
+                if (album.created_by !== user.username && item.added_by !== user.username) {
+                    return cb?.({ success: false, error: 'Cannot remove this item' });
+                }
+                const success = this.albumStore.removeItem(itemId);
+                this.io.to(this.roomId).emit('album:sync', this.getAlbumsSyncData());
+                this.emit('albums-updated');
+                cb?.({ success });
+            });
+
+            socket.on('album:item-update', ({ itemId, updates }, cb) => {
+                const user = this.activeUsers.get(socket.id);
+                if (!user || !this.albumStore) return cb?.({ success: false, error: 'Unavailable' });
+                const item = this.albumStore.getItem(itemId);
+                if (!item) return cb?.({ success: false, error: 'Item not found' });
+                const album = this.albumStore.getAlbum(item.album_id);
+                if (album.locked) {
+                    return cb?.({ success: false, error: 'Album is locked' });
+                }
+                if (album.status === 'suggested' && album.created_by !== user.username) {
+                    return cb?.({ success: false, error: 'Cannot edit unapproved album' });
+                }
+                const updatedItem = this.albumStore.updateItem(itemId, updates);
+                this.io.to(this.roomId).emit('album:sync', this.getAlbumsSyncData());
+                this.emit('albums-updated');
+                cb?.({ success: true, item: updatedItem });
+            });
 
             socket.on('disconnect', () => {
                 const user = this.activeUsers.get(socket.id);
                 if (user) {
-                    // Clean up voice room participation on disconnect
                     const voiceRoom = this.voiceRooms.get(user.roomId);
                     if (voiceRoom && voiceRoom.participants.has(socket.id)) {
                         if (voiceRoom.hostSocketId === socket.id) {
-                            // Host disconnected - give 15s grace period to reconnect
-                            console.log(`Voice host ${user.username} disconnected, starting 15s grace period`);
                             voiceRoom.participants.delete(socket.id);
-
-                            // Clear any existing timeout
                             if (voiceRoom.disconnectTimeout) {
                                 clearTimeout(voiceRoom.disconnectTimeout);
                             }
-
-                            // Set grace period timeout
                             voiceRoom.disconnectTimeout = setTimeout(() => {
-                                // Check if room still exists and host hasn't returned
                                 const room = this.voiceRooms.get(user.roomId);
                                 if (room && room.hostUsername === user.username && !room.participants.has(room.hostSocketId)) {
-                                    console.log(`Voice host ${user.username} did not return, destroying room`);
                                     this.io.to(user.roomId).emit('voice-stopped', { roomId: user.roomId });
                                     this.voiceRooms.delete(user.roomId);
                                     this.io.to(user.roomId).emit('voice-state', { active: false, roomId: user.roomId, participantCount: 0 });
                                 }
                             }, 15000);
 
-                            // Notify participants that host is temporarily gone
                             this.io.to(user.roomId).emit('voice-state', {
                                 active: true,
                                 roomId: user.roomId,
-                                hostSocketId: null, // Host temporarily disconnected
+                                hostSocketId: null,
                                 participantCount: voiceRoom.participants.size,
                                 hostReconnecting: true
                             });
                         } else {
-                            // Participant disconnected
                             voiceRoom.participants.delete(socket.id);
                             this.io.to(user.roomId).emit('voice-left', {
                                 socketId: socket.id,
@@ -1544,21 +1536,40 @@ class FileServer extends EventEmitter {
                     }
 
                     this.activeUsers.delete(socket.id);
-                    // Legacy presence update
-                    const room = user.roomId; // user object is still valid here
+                    const room = user.roomId;
                     const getPresenceList = (roomId) => Array.from(this.activeUsers.values())
                         .filter(u => u.roomId === roomId)
                         .map(u => u.username);
                     this.io.to(room).emit('presence-update', getPresenceList(room));
-
-                    // New Roster update
                     this.emitMembersUpdate(room);
                 }
             });
         });
     }
 
-    // Helper to broadcast full voice state
+    emitVideoState(roomId) {
+        const videoRoom = this.videoRooms.get(roomId);
+        if (videoRoom) {
+            const participants = Array.from(videoRoom.participants).map(sid => {
+                const u = this.activeUsers.get(sid);
+                return {
+                    socketId: sid,
+                    username: u ? u.username : 'Unknown',
+                    isPresenter: sid === videoRoom.hostSocketId
+                };
+            });
+
+            this.io.to(roomId).emit('video-state', {
+                roomId,
+                active: true,
+                hostSocketId: videoRoom.hostSocketId,
+                participants
+            });
+        } else {
+            this.io.to(roomId).emit('video-state', { roomId, active: false, participants: [] });
+        }
+    }
+
     broadcastVoiceState(roomId) {
         const voiceRoom = this.voiceRooms.get(roomId);
         if (!voiceRoom) return;
@@ -1572,6 +1583,16 @@ class FileServer extends EventEmitter {
             mutedAll: voiceRoom.mutedAll,
             participants: Array.from(voiceRoom.participants)
         });
+    }
+
+    // Helper to get album sync data
+    getAlbumsSyncData() {
+        if (!this.albumStore) return null;
+        const albums = this.albumStore.getSessionAlbums(this.roomId);
+        return albums.map(album => ({
+            ...album,
+            items: this.albumStore.getAlbumItems(album.id)
+        }));
     }
 
     getPastelColor(username) {

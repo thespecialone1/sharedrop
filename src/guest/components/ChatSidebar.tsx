@@ -186,68 +186,75 @@ const ChatSidebar = ({
                 fixed inset-y-0 left-0 z-[60] transition-transform duration-300 ease-out
                 bg-bg shadow-2xl border-r border-border-custom
                 w-[85vw] sm:w-[25vw] sm:min-w-[320px] sm:max-w-[400px]
-                ${isOpen ? 'translate-x-0' : '-translate-x-full'}
+                ${isOpen ? 'translate-x-0 pointer-events-auto' : '-translate-x-full pointer-events-none'}
             `}>
                 <div className="flex flex-col h-full">
                     {/* Header */}
-                    <div className="flex-shrink-0 px-4 py-3 border-b border-border-custom flex items-center justify-between bg-surface-2">
-                        <div className="flex items-center gap-2">
-                            <MessageCircle size={18} className="text-blue-500" />
-                            <span className="font-semibold text-sm text-text-primary">Chat</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            {/* Video Control */}
-                            {videoRoom && !videoRoom.isInVideo && (
-                                <div className="relative">
-                                    {videoRoom.isActive && (
-                                        <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5 z-10">
-                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
-                                        </span>
-                                    )}
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className={`h-8 px-3 rounded-lg text-xs font-semibold shadow-sm transition-all border-border-custom hover:bg-surface-2
-                                            ${videoRoom.isActive
-                                                ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100'
-                                                : 'text-text-secondary'}`}
-                                        onClick={videoRoom.isActive ? videoRoom.onJoin : videoRoom.onStart}
-                                        title={videoRoom.isActive ? "Join Video Call" : "Start Video Call"}
-                                    >
-                                        <Video size={14} className={`mr-2 ${videoRoom.isActive ? 'text-green-600' : 'text-slate-400'}`} />
-                                        {videoRoom.isActive ? (videoRoom.isInVideo ? 'Active' : 'Join Video') : 'Video'}
-                                    </Button>
-                                </div>
-                            )}
-                            {voiceRoom && (
-                                <VoicePanel
-                                    isActive={voiceRoom.isActive}
-                                    isInVoice={voiceRoom.isInVoice}
-                                    isHost={voiceRoom.isHost}
-                                    participantCount={voiceRoom.participantCount}
-                                    isMuted={voiceRoom.isMuted}
-                                    isLocked={voiceRoom.isLocked}
-                                    isPttEnabled={voiceRoom.isPttEnabled}
-                                    isSpeaking={voiceRoom.isSpeaking}
-                                    onStart={voiceRoom.onStart}
-                                    onJoin={voiceRoom.onJoin}
-                                    onLeave={voiceRoom.onLeave}
-                                    onStop={voiceRoom.onStop}
-                                    onToggleMute={voiceRoom.onToggleMute}
-                                    onToggleLock={voiceRoom.onToggleLock}
-                                    onMuteAll={voiceRoom.onMuteAll}
-                                    onTogglePtt={voiceRoom.onTogglePtt}
-                                    isLoading={voiceRoom.isLoading}
-                                    isReconnecting={voiceRoom.isReconnecting}
-                                    hostReconnecting={voiceRoom.hostReconnecting}
-                                    isVideoActive={videoRoom?.isActive}
-                                />
-                            )}
-                            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={onToggle}>
+                    <div className="flex-shrink-0 px-4 py-3 border-b border-border-custom bg-surface-2 flex flex-col gap-3">
+                        {/* Top Row: Title & Close */}
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <MessageCircle size={18} className="text-blue-500" />
+                                <span className="font-semibold text-sm text-text-primary">Chat</span>
+                            </div>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg -mr-2" onClick={onToggle}>
                                 <X size={16} className="text-slate-400" />
                             </Button>
                         </div>
+
+                        {/* Controls Row */}
+                        {(videoRoom || voiceRoom) && (
+                            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
+                                {/* Video Control */}
+                                {videoRoom && !videoRoom.isInVideo && (
+                                    <div className="relative flex-shrink-0">
+                                        {videoRoom.isActive && (
+                                            <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5 z-10">
+                                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
+                                            </span>
+                                        )}
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className={`h-8 px-3 rounded-lg text-xs font-semibold shadow-sm transition-all border-border-custom hover:bg-surface-2
+                                                ${videoRoom.isActive
+                                                    ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100'
+                                                    : 'text-text-secondary'}`}
+                                            onClick={videoRoom.isActive ? videoRoom.onJoin : videoRoom.onStart}
+                                            title={videoRoom.isActive ? "Join Video Call" : "Start Video Call"}
+                                        >
+                                            <Video size={14} className={`mr-2 ${videoRoom.isActive ? 'text-green-600' : 'text-slate-400'}`} />
+                                            {videoRoom.isActive ? (videoRoom.isInVideo ? 'Active' : 'Join Video') : 'Video'}
+                                        </Button>
+                                    </div>
+                                )}
+                                {voiceRoom && (
+                                    <VoicePanel
+                                        isActive={voiceRoom.isActive}
+                                        isInVoice={voiceRoom.isInVoice}
+                                        isHost={voiceRoom.isHost}
+                                        participantCount={voiceRoom.participantCount}
+                                        isMuted={voiceRoom.isMuted}
+                                        isLocked={voiceRoom.isLocked}
+                                        isPttEnabled={voiceRoom.isPttEnabled}
+                                        isSpeaking={voiceRoom.isSpeaking}
+                                        onStart={voiceRoom.onStart}
+                                        onJoin={voiceRoom.onJoin}
+                                        onLeave={voiceRoom.onLeave}
+                                        onStop={voiceRoom.onStop}
+                                        onToggleMute={voiceRoom.onToggleMute}
+                                        onToggleLock={voiceRoom.onToggleLock}
+                                        onMuteAll={voiceRoom.onMuteAll}
+                                        onTogglePtt={voiceRoom.onTogglePtt}
+                                        isLoading={voiceRoom.isLoading}
+                                        isReconnecting={voiceRoom.isReconnecting}
+                                        hostReconnecting={voiceRoom.hostReconnecting}
+                                        isVideoActive={videoRoom?.isActive}
+                                    />
+                                )}
+                            </div>
+                        )}
                     </div>
 
                     {/* Debug: Check video state */}
