@@ -3,8 +3,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Image, Plus, Star, Folder, Check, X, Loader2, ChevronRight, ChevronDown } from 'lucide-react';
+import { Image, Plus, Star, Folder, Check, X, Loader2, ChevronRight, ChevronDown, ClipboardPaste, Download } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
+import PasteToAlbumDialog from './PasteToAlbumDialog';
 
 interface Album {
     id: string;
@@ -61,6 +62,8 @@ const AlbumPanel: React.FC<AlbumPanelProps> = ({
     const [isAdding, setIsAdding] = useState(false);
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
     const [isIdle, setIsIdle] = useState(true);
+    const [pasteAlbumId, setPasteAlbumId] = useState<string | null>(null);
+    const [pasteAlbumName, setPasteAlbumName] = useState('');
 
     useEffect(() => {
         if (socket) {
@@ -405,8 +408,8 @@ const AlbumPanel: React.FC<AlbumPanelProps> = ({
                         </div>
 
                         {/* Content */}
-                        <ScrollArea className="flex-1">
-                            <div className="p-3 space-y-2">
+                        <ScrollArea className="flex-1 w-full">
+                            <div className="p-3 space-y-2 w-full max-w-full overflow-hidden">
                                 {/* Selected count */}
                                 {selectedPaths.length > 0 && (
                                     <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-2 mb-3">
@@ -447,7 +450,7 @@ const AlbumPanel: React.FC<AlbumPanelProps> = ({
                                 )}
 
                                 {approvedAlbums.map(album => (
-                                    <div key={album.id} className="border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-800/40 rounded-xl overflow-hidden shadow-sm">
+                                    <div key={album.id} className="border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-800/40 rounded-xl overflow-hidden shadow-sm w-full max-w-full">
                                         <div
                                             className="flex items-center gap-3 px-4 py-3 bg-zinc-50/50 dark:bg-zinc-800/40 border-b border-zinc-100 dark:border-zinc-800/50 cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-colors"
                                             onClick={() => toggleAlbumCollapse(album.id)}
@@ -455,7 +458,7 @@ const AlbumPanel: React.FC<AlbumPanelProps> = ({
                                             <div className="p-1 rounded bg-blue-100/50 dark:bg-blue-500/10">
                                                 <Folder size={16} className="text-blue-500" />
                                             </div>
-                                            <div className="flex-1 min-w-0">
+                                            <div className="flex-1 min-w-0 overflow-hidden">
                                                 <div className="flex items-center justify-between">
                                                     <span className="text-sm font-medium text-zinc-800 dark:text-zinc-200 truncate">{album.name}</span>
                                                     <div className="flex items-center gap-2">
@@ -478,8 +481,8 @@ const AlbumPanel: React.FC<AlbumPanelProps> = ({
                                         {!collapsedAlbums.has(album.id) && (
                                             <>
                                                 {album.items && album.items.length > 0 ? (
-                                                    <div className="p-3">
-                                                        <div className="grid grid-cols-3 gap-2">
+                                                    <div className="p-3 overflow-hidden">
+                                                        <div className="grid grid-cols-3 gap-2 w-full">
                                                             {album.items.map(item => (
                                                                 <div key={item.id} className="relative aspect-square rounded-lg overflow-hidden group cursor-pointer border border-zinc-100 dark:border-zinc-800" onClick={() => onPreview(item.file_path)}>
                                                                     <img
@@ -515,7 +518,42 @@ const AlbumPanel: React.FC<AlbumPanelProps> = ({
                                                                 </div>
                                                             ))}
                                                         </div>
-                                                        <div className="mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-800/50 flex justify-end">
+                                                        <div className="mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-800/50 flex flex-wrap gap-2 justify-between items-center">
+                                                            <div className="flex flex-wrap gap-1.5 shrink-0">
+                                                                {!album.locked && (
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="ghost"
+                                                                        className="h-7 text-xs text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setPasteAlbumId(album.id);
+                                                                            setPasteAlbumName(album.name);
+                                                                        }}
+                                                                    >
+                                                                        <ClipboardPaste size={14} className="mr-1" />
+                                                                        Paste Names
+                                                                    </Button>
+                                                                )}
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="ghost"
+                                                                    className="h-7 text-xs text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        // Trigger download properly to respect Content-Disposition header
+                                                                        const link = document.createElement('a');
+                                                                        link.href = `/api/albums/${album.id}/download`;
+                                                                        link.download = ''; // Let server set the filename
+                                                                        document.body.appendChild(link);
+                                                                        link.click();
+                                                                        document.body.removeChild(link);
+                                                                    }}
+                                                                >
+                                                                    <Download size={14} className="mr-1" />
+                                                                    Download
+                                                                </Button>
+                                                            </div>
                                                             <Button
                                                                 size="sm"
                                                                 variant="ghost"
@@ -538,20 +576,36 @@ const AlbumPanel: React.FC<AlbumPanelProps> = ({
                                                 ) : (
                                                     <div className="px-4 py-6 text-center">
                                                         <p className="text-[10px] text-zinc-400 dark:text-zinc-500 italic">Empty album</p>
-                                                        {selectedPaths.length > 0 && !album.locked && (
-                                                            <Button
-                                                                size="sm"
-                                                                variant="outline"
-                                                                className="mt-2 h-7 text-xs border-dashed border-zinc-300 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:border-zinc-400 dark:hover:border-zinc-600 w-full"
-                                                                onClick={() => {
-                                                                    setSelectedAlbumId(album.id);
-                                                                    confirmAddToAlbum();
-                                                                }}
-                                                            >
-                                                                <Plus size={12} className="mr-1" />
-                                                                Add Selected
-                                                            </Button>
-                                                        )}
+                                                        <div className="flex flex-col gap-1.5 mt-2">
+                                                            {!album.locked && (
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="outline"
+                                                                    className="h-7 text-xs border-dashed border-zinc-300 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:border-zinc-400 dark:hover:border-zinc-600 w-full"
+                                                                    onClick={() => {
+                                                                        setPasteAlbumId(album.id);
+                                                                        setPasteAlbumName(album.name);
+                                                                    }}
+                                                                >
+                                                                    <ClipboardPaste size={12} className="mr-1" />
+                                                                    Paste Names
+                                                                </Button>
+                                                            )}
+                                                            {selectedPaths.length > 0 && !album.locked && (
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="outline"
+                                                                    className="h-7 text-xs border-dashed border-zinc-300 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:border-zinc-400 dark:hover:border-zinc-600 w-full"
+                                                                    onClick={() => {
+                                                                        setSelectedAlbumId(album.id);
+                                                                        confirmAddToAlbum();
+                                                                    }}
+                                                                >
+                                                                    <Plus size={12} className="mr-1" />
+                                                                    Add Selected
+                                                                </Button>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 )}
                                             </>
@@ -691,6 +745,20 @@ const AlbumPanel: React.FC<AlbumPanelProps> = ({
                     </div>
                 </DialogContent>
             </Dialog>
+
+            {/* Paste to Album Dialog */}
+            <PasteToAlbumDialog
+                open={!!pasteAlbumId}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setPasteAlbumId(null);
+                        setPasteAlbumName('');
+                    }
+                }}
+                socket={socket}
+                albumId={pasteAlbumId || ''}
+                albumName={pasteAlbumName}
+            />
         </>
     );
 };

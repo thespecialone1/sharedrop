@@ -84,6 +84,86 @@ const isHiddenSystemFile = (filename) => {
     return HIDDEN_FILE_PATTERNS.some(pattern => pattern.test(filename));
 };
 
+// Common photo extensions for preference when matching without extension
+const PHOTO_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.heic', '.heif', '.dng', '.raw', '.arw', '.cr2', '.nef', '.orf', '.rw2']);
+
+/**
+ * Normalize a filename for fuzzy matching.
+ * Rules: lowercase, strip extension, remove ALL non-alphanumeric characters.
+ * This allows "MG3493" to match "_MG_3493.jpg" (both normalize to "mg3493").
+ * @param {string} name - The filename to normalize
+ * @returns {string} Normalized name
+ */
+const normalizeName = (name) => {
+    // Strip extension if present
+    const ext = path.extname(name);
+    let base = ext ? path.basename(name, ext) : name;
+
+    // Lowercase
+    base = base.toLowerCase();
+
+    // Keep ONLY alphanumeric (strip underscores, dashes, spaces, etc.)
+    base = base.replace(/[^a-z0-9]/g, '');
+
+    return base;
+};
+
+/**
+ * Recursively build a file index for paste-matching.
+ * Returns: {
+ *   byFullname: Map<lowercaseFullFilename, relativePath>,
+ *   byBasename: Map<lowercaseBasenameWithoutExt, { withExt: Map<ext, path>, paths: path[] }>,
+ *   byNormalized: Map<normalizedName, relativePath[]>
+ * }
+ */
+const buildFileIndex = (rootPath) => {
+    const byFullname = new Map();
+    const byBasename = new Map();
+    const byNormalized = new Map();
+
+    const walk = (dir) => {
+        try {
+            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            for (const entry of entries) {
+                if (isHiddenSystemFile(entry.name)) continue;
+                const fullPath = path.join(dir, entry.name);
+                if (entry.isDirectory()) {
+                    walk(fullPath);
+                } else if (entry.isFile()) {
+                    const relativePath = path.relative(rootPath, fullPath);
+                    const ext = path.extname(entry.name).toLowerCase();
+                    const basenameNoExt = path.basename(entry.name, path.extname(entry.name)).toLowerCase();
+                    const fullNameLower = entry.name.toLowerCase();
+                    const normalized = normalizeName(entry.name);
+
+                    // Index by full filename (case-insensitive)
+                    byFullname.set(fullNameLower, relativePath);
+
+                    // Index by basename (without extension)
+                    if (!byBasename.has(basenameNoExt)) {
+                        byBasename.set(basenameNoExt, { withExt: new Map(), paths: [] });
+                    }
+                    const record = byBasename.get(basenameNoExt);
+                    record.paths.push(relativePath);
+                    record.withExt.set(ext, relativePath);
+
+                    // Index by normalized name
+                    if (!byNormalized.has(normalized)) {
+                        byNormalized.set(normalized, []);
+                    }
+                    byNormalized.get(normalized).push(relativePath);
+                }
+            }
+        } catch (e) {
+            console.error('buildFileIndex walk error:', e.message);
+        }
+    };
+
+    walk(rootPath);
+    return { byFullname, byBasename, byNormalized };
+};
+
+
 class FileServer extends EventEmitter {
     constructor(sharedPath, password, sessionId = null, stores = {}) {
         super();
@@ -813,6 +893,42 @@ class FileServer extends EventEmitter {
             res.json(exportData);
         });
 
+        // Download album as ZIP
+        this.app.get('/api/albums/:id/download', requireAuth, requireAlbumStore, async (req, res) => {
+            if (!this.albumStore) return res.status(503).json({ error: 'Unavailable' });
+
+            const album = this.albumStore.getAlbum(req.params.id);
+            if (!album) {
+                return res.status(404).json({ error: 'Album not found' });
+            }
+
+            const items = this.albumStore.getAlbumItems(req.params.id);
+            if (!items || items.length === 0) {
+                return res.status(400).json({ error: 'Album is empty' });
+            }
+
+            // Extract file paths, marking missing files
+            const validPaths = [];
+            const missingPaths = [];
+
+            for (const item of items) {
+                const fullPath = path.join(this.sharedPath, item.file_path);
+                if (fs.existsSync(fullPath)) {
+                    validPaths.push(item.file_path);
+                } else {
+                    missingPaths.push(item.file_path);
+                }
+            }
+
+            if (validPaths.length === 0) {
+                return res.status(400).json({ error: 'No valid files in album', missingPaths });
+            }
+
+            // Use existing generateZip with album name
+            res.attachment(`${album.name.replace(/[^a-zA-Z0-9-_]/g, '_')}.zip`);
+            await generateZip(this.sharedPath, validPaths, res);
+        });
+
         this.app.get('/api/albums/recovery', requireOwner, (req, res) => {
             const folderPath = req.query.folderPath;
             if (!folderPath) {
@@ -1497,6 +1613,135 @@ class FileServer extends EventEmitter {
                 this.io.to(this.roomId).emit('album:sync', this.getAlbumsSyncData());
                 this.emit('albums-updated');
                 cb?.({ success: true, item: updatedItem });
+            });
+
+            // Paste-to-Album: Match pasted filenames against file index and add to album
+            // Matching priority: 1) Exact filename 2) Exact basename 3) Normalized match
+            socket.on('album:paste-match', ({ albumId, pastedText }, cb) => {
+                const user = this.activeUsers.get(socket.id);
+                if (!user || !this.albumStore) {
+                    return cb?.({ success: false, error: 'Unavailable' });
+                }
+
+                const album = this.albumStore.getAlbum(albumId);
+                if (!album) {
+                    return cb?.({ success: false, error: 'Album not found' });
+                }
+                if (album.locked) {
+                    return cb?.({ success: false, error: 'Album is locked' });
+                }
+                if (album.status === 'suggested' && album.created_by !== user.username) {
+                    return cb?.({ success: false, error: 'Cannot add to unapproved album' });
+                }
+
+                // Build file index for matching
+                const { byFullname, byBasename, byNormalized } = buildFileIndex(this.sharedPath);
+
+                // Get existing items to check for duplicates
+                const existingItems = this.albumStore.getAlbumItems(albumId);
+                const existingPaths = new Set(existingItems.map(i => i.file_path));
+
+                // Parse pasted text
+                const lines = (pastedText || '').split(/[\r\n]+/).map(l => l.trim()).filter(Boolean);
+
+                const added = [];       // { input, resolved, method }
+                const ambiguous = [];   // { name, candidates, method }
+                const unmatched = [];
+                const skippedDuplicates = [];
+
+                for (const line of lines) {
+                    // Extract basename (ignore any path prefix)
+                    const inputBasename = path.basename(line);
+                    if (!inputBasename) {
+                        unmatched.push(line);
+                        continue;
+                    }
+
+                    const inputLower = inputBasename.toLowerCase();
+                    const ext = path.extname(inputBasename).toLowerCase();
+                    const nameWithoutExt = path.basename(inputBasename, path.extname(inputBasename)).toLowerCase();
+                    const inputNormalized = normalizeName(inputBasename);
+
+                    let resolved = null;
+                    let method = null;
+
+                    // Priority 1: Exact filename match (case-insensitive)
+                    if (byFullname.has(inputLower)) {
+                        resolved = byFullname.get(inputLower);
+                        method = 'exact_filename';
+                    }
+
+                    // Priority 2: Exact basename match (if input has no extension)
+                    if (!resolved && !ext) {
+                        const record = byBasename.get(nameWithoutExt);
+                        if (record && record.paths.length === 1) {
+                            resolved = record.paths[0];
+                            method = 'exact_basename';
+                        } else if (record && record.paths.length > 1) {
+                            // Check if exactly one is a photo
+                            const photoCandidates = record.paths.filter(p => {
+                                const pExt = path.extname(p).toLowerCase();
+                                return PHOTO_EXTENSIONS.has(pExt);
+                            });
+                            if (photoCandidates.length === 1) {
+                                resolved = photoCandidates[0];
+                                method = 'exact_basename_photo';
+                            } else {
+                                // Ambiguous at basename level
+                                ambiguous.push({
+                                    name: line,
+                                    candidates: record.paths,
+                                    method: 'basename_ambiguous'
+                                });
+                                continue;
+                            }
+                        }
+                    }
+
+                    // Priority 3: Normalized match (only if 1 exact result)
+                    if (!resolved && byNormalized.has(inputNormalized)) {
+                        const normalizedMatches = byNormalized.get(inputNormalized);
+                        if (normalizedMatches.length === 1) {
+                            resolved = normalizedMatches[0];
+                            method = 'normalized';
+                        } else if (normalizedMatches.length > 1) {
+                            // Ambiguous at normalized level
+                            ambiguous.push({
+                                name: line,
+                                candidates: normalizedMatches,
+                                method: 'normalized_ambiguous'
+                            });
+                            continue;
+                        }
+                    }
+
+                    // Result
+                    if (resolved) {
+                        if (existingPaths.has(resolved)) {
+                            skippedDuplicates.push({ input: line, resolved });
+                        } else {
+                            this.albumStore.addItem(albumId, resolved, user.username, {});
+                            existingPaths.add(resolved);
+                            added.push({ input: line, resolved, method });
+                        }
+                    } else {
+                        unmatched.push(line);
+                    }
+                }
+
+                // Sync to all clients
+                if (added.length > 0) {
+                    this.io.to(this.roomId).emit('album:sync', this.getAlbumsSyncData());
+                    this.emit('albums-updated');
+                }
+
+                cb?.({
+                    success: true,
+                    added,
+                    ambiguous,
+                    unmatched,
+                    skippedDuplicates
+                });
             });
 
             socket.on('disconnect', () => {
