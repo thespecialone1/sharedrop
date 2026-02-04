@@ -35,7 +35,7 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
-      devTools: true // FORCE ENABLE FOR DEBUGGING
+      devTools: process.env.NODE_ENV === 'development'
     },
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 16 },

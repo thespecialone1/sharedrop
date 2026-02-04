@@ -312,12 +312,12 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
     const debouncedSearch = useDebounce(searchTerm, 300);
 
     const filteredItems = activeFilters.size > 0 ? items.filter(i => {
-        const { isImage, isVideo, isEbook, isText, isJson, isPdf, isAudio } = getFileType(i.name);
+        const { isImage, isVideo } = getFileType(i.name);
         return (
             (activeFilters.has('folders') && i.isDirectory) ||
             (activeFilters.has('images') && isImage) ||
             (activeFilters.has('videos') && isVideo) ||
-            (activeFilters.has('others') && !i.isDirectory && !isImage && !isVideo && !isEbook && !isText && !isJson && !isPdf && !isAudio)
+            (activeFilters.has('others') && !i.isDirectory && !isImage && !isVideo)
         );
     }) : items;
 
@@ -740,7 +740,7 @@ const BrowseView = ({ username, roomId }: { username: string, roomId: string }) 
                             <div className="relative flex-1 max-w-lg">
                                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" size={16} />
                                 <Input
-                                    className="h-11 pl-10 rounded-full border-border-custom/30 bg-glass-bg backdrop-blur-md text-sm focus-visible:ring-primary-blue/50 focus-visible:ring-2 focus-visible:border-primary-blue/30 transition-all placeholder:text-muted-ink shadow-sm"
+                                    className="h-11 pl-10 rounded-full border-transparent bg-glass-bg backdrop-blur-md text-sm ring-1 ring-black/5 dark:ring-white/8 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-transparent transition-all placeholder:text-muted-ink shadow-sm"
                                     placeholder="Search files..."
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}

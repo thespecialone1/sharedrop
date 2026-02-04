@@ -32,18 +32,19 @@ export const NotificationLayer = ({
             )}
 
             {/* Toasts (Top Right or Center, stacking) */}
-            <div className="absolute top-4 right-4 sm:top-6 sm:right-6 flex flex-col gap-2 w-full max-w-sm items-end">
+            <div className="absolute top-4 right-4 sm:top-6 sm:right-6 flex flex-col gap-2 w-full max-w-sm items-end pointer-events-none">
                 {toasts.map(toast => (
-                    <Toast
-                        key={toast.id}
-                        id={toast.id}
-                        title={toast.title}
-                        message={toast.message}
-                        type={toast.type}
-                        duration={toast.duration}
-                        onDismiss={onDismissToast}
-                        onClick={toast.action}
-                    />
+                    <div key={toast.id} className="pointer-events-auto w-full flex justify-end">
+                        <Toast
+                            id={toast.id}
+                            title={toast.title}
+                            message={toast.message}
+                            type={toast.type}
+                            duration={toast.duration}
+                            onDismiss={onDismissToast}
+                            onClick={toast.action}
+                        />
+                    </div>
                 ))}
             </div>
         </div>

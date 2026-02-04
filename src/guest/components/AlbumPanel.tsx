@@ -347,273 +347,279 @@ const AlbumPanel: React.FC<AlbumPanelProps> = ({
     // Desktop: Floating trigger + Right drawer
     return (
         <>
-            {/* Floating Trigger Button */}
-            {/* Floating Trigger Button (FAB) */}
+            {/* Floating trigger (bottom-right) */}
             <div className="fixed bottom-6 right-6 z-40">
-                <Button
-                    size="icon"
-                    className="h-14 w-14 rounded-full shadow-lg bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 transition-all hover:scale-105 active:scale-95"
-                    onClick={() => setIsDrawerOpen(true)}
-                >
-                    <Image size={24} className="stroke-[1.5]" />
-                    {totalItems > 0 && (
-                        <span className="absolute -top-1 -right-1 bg-blue-600 text-white text-[10px] w-5 h-5 rounded-full flex items-center justify-center font-bold shadow-sm border border-white dark:border-zinc-900">
-                            {totalItems}
-                        </span>
-                    )}
-                </Button>
+                <div className="relative">
+                    <div className="absolute inset-0 rounded-3xl bg-black/10 dark:bg-white/6 blur-md pointer-events-none" aria-hidden />
+                    <Button
+                        size="icon"
+                        variant="ghost"
+                        className="relative h-14 w-14 rounded-2xl bg-white dark:bg-zinc-800 border border-slate-200/70 dark:border-zinc-700 ring-1 ring-black/5 dark:ring-white/10 shadow-[0_12px_30px_-16px_rgba(0,0,0,0.45)] text-slate-600 dark:text-slate-300 focus-visible:ring-0 focus-visible:ring-offset-0 hover:scale-105 active:scale-95 transition-transform"
+                        onClick={() => setIsDrawerOpen(true)}
+                        aria-label="Open albums"
+                    >
+                        <Image size={22} className="stroke-[1.6]" />
+                        {totalItems > 0 && (
+                            <span className="absolute -top-1 -right-1 bg-blue-600 text-white text-[10px] w-5 h-5 rounded-full flex items-center justify-center font-bold shadow-sm border border-white/90 dark:border-zinc-900">
+                                {totalItems}
+                            </span>
+                        )}
+                    </Button>
+                </div>
             </div>
 
             {/* Drawer Overlay */}
             {isDrawerOpen && (
                 <>
-                    <div
-                        className="fixed inset-0 bg-black/50 z-40"
-                        onClick={() => setIsDrawerOpen(false)}
-                    />
+                    <div className="fixed inset-0 z-30 pointer-events-none">
+                        <div className="absolute inset-0 bg-black/20 dark:bg-black/40" />
+                    </div>
 
-                    {/* Right Drawer */}
-                    <div className="fixed right-0 top-0 bottom-0 w-[360px] bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl border-l border-zinc-200 dark:border-zinc-800 shadow-2xl z-50 animate-in slide-in-from-right duration-300 flex flex-col">
-                        {/* Header */}
-                        <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-100 dark:border-zinc-800">
-                            <div className="flex items-center gap-2">
-                                <div className="p-1.5 bg-blue-100 dark:bg-blue-500/20 rounded-md">
-                                    <Image size={16} className="text-blue-600 dark:text-blue-400" />
+                    {/* Right Drawer (Gmail-inspired sheet) */}
+                    <div className="fixed top-4 bottom-4 right-4 z-50 flex animate-in slide-in-from-right duration-300">
+                        <div className="h-full w-[360px] rounded-3xl border border-zinc-200/80 dark:border-white/10 bg-white/94 dark:bg-zinc-900/94 shadow-[0_18px_60px_-24px_rgba(0,0,0,0.35)] backdrop-blur-2xl overflow-hidden flex flex-col">
+                            {/* Header */}
+                            <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-100/80 dark:border-white/10">
+                                <div className="flex items-center gap-2">
+                                    <div className="p-1.5 bg-blue-100/70 dark:bg-blue-500/15 rounded-lg">
+                                        <Image size={16} className="text-blue-600 dark:text-blue-400" />
+                                    </div>
+                                    <span className="font-semibold text-zinc-800 dark:text-zinc-100">Albums</span>
+                                    <span className="text-xs text-zinc-500 dark:text-zinc-500">({approvedAlbums.length})</span>
                                 </div>
-                                <span className="font-semibold text-zinc-800 dark:text-zinc-100">Albums</span>
-                                <span className="text-xs text-zinc-500 dark:text-zinc-500">({approvedAlbums.length})</span>
+                                <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    onClick={() => setIsDrawerOpen(false)}
+                                    className="h-8 w-8 hover:bg-zinc-100 dark:hover:bg-white/5 rounded-full"
+                                >
+                                    <ChevronRight size={18} className="text-zinc-500 dark:text-zinc-400" />
+                                </Button>
                             </div>
-                            <Button
-                                size="icon"
-                                variant="ghost"
-                                onClick={() => setIsDrawerOpen(false)}
-                                className="h-8 w-8 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full"
-                            >
-                                <ChevronRight size={18} className="text-zinc-500 dark:text-zinc-400" />
-                            </Button>
-                        </div>
 
-                        {/* Quick stats */}
-                        <div className="flex-shrink-0 px-5 py-2.5 bg-zinc-50/50 dark:bg-zinc-800/30 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
-                            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{totalItems} items across all albums</span>
-                            <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-6 text-xs text-zinc-400 hover:text-zinc-200"
-                                onClick={() => setShowSuggestDialog(true)}
-                            >
-                                <Plus size={12} className="mr-1" />
-                                Suggest
-                            </Button>
-                        </div>
+                            {/* Quick stats */}
+                            <div className="flex-shrink-0 px-5 py-3 bg-zinc-50/70 dark:bg-white/[0.03] border-b border-zinc-100/70 dark:border-white/10 flex items-center justify-between">
+                                <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{totalItems} items across all albums</span>
+                                <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-7 text-xs text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-white px-2"
+                                    onClick={() => setShowSuggestDialog(true)}
+                                >
+                                    <Plus size={12} className="mr-1" />
+                                    Suggest
+                                </Button>
+                            </div>
 
-                        {/* Content */}
-                        <ScrollArea className="flex-1 w-full">
-                            <div className="p-3 space-y-2 w-full max-w-full overflow-hidden">
-                                {/* Selected count */}
-                                {selectedPaths.length > 0 && (
-                                    <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-2 mb-3">
-                                        <span className="text-xs text-blue-400">{selectedPaths.length} selected</span>
-                                    </div>
-                                )}
+                            {/* Content */}
+                            <ScrollArea className="flex-1 w-full">
+                                <div className="p-4 space-y-3 w-full max-w-full overflow-hidden">
+                                    {/* Selected count */}
+                                    {selectedPaths.length > 0 && (
+                                        <div className="bg-blue-500/8 border border-blue-500/20 rounded-xl px-3 py-2 mb-2">
+                                            <span className="text-xs text-blue-500">{selectedPaths.length} selected</span>
+                                        </div>
+                                    )}
 
-                                {/* Suggested albums */}
-                                {suggestedAlbums.length > 0 && (
-                                    <div className="space-y-1 mb-4">
-                                        <p className="text-[10px] font-medium text-amber-500 uppercase tracking-wider mb-2">Pending Review</p>
-                                        {suggestedAlbums.map(album => (
-                                            <div key={album.id} className="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-lg p-3">
-                                                <div className="flex items-center gap-2">
-                                                    <Folder size={14} className="text-amber-500" />
-                                                    <span className="text-xs font-medium text-zinc-700 dark:text-zinc-200">{album.name}</span>
-                                                    <span className="text-[10px] text-amber-600 dark:text-amber-500 ml-auto bg-amber-100 dark:bg-amber-500/10 px-1.5 py-0.5 rounded">Pending</span>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-
-                                {approvedAlbums.length === 0 && suggestedAlbums.length === 0 && (
-                                    <div className="text-center py-8 text-zinc-500">
-                                        <Image size={24} className="mx-auto mb-2 opacity-50" />
-                                        <p className="text-xs">No albums yet</p>
-                                        <Button
-                                            size="sm"
-                                            variant="outline"
-                                            className="mt-2 text-xs border-zinc-700 text-zinc-400 hover:text-zinc-200"
-                                            onClick={() => setShowSuggestDialog(true)}
-                                        >
-                                            <Plus size={12} className="mr-1" />
-                                            Suggest Album
-                                        </Button>
-                                    </div>
-                                )}
-
-                                {approvedAlbums.map(album => (
-                                    <div key={album.id} className="border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-800/40 rounded-xl overflow-hidden shadow-sm w-full max-w-full">
-                                        <div
-                                            className="flex items-center gap-3 px-4 py-3 bg-zinc-50/50 dark:bg-zinc-800/40 border-b border-zinc-100 dark:border-zinc-800/50 cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-colors"
-                                            onClick={() => toggleAlbumCollapse(album.id)}
-                                        >
-                                            <div className="p-1 rounded bg-blue-100/50 dark:bg-blue-500/10">
-                                                <Folder size={16} className="text-blue-500" />
-                                            </div>
-                                            <div className="flex-1 min-w-0 overflow-hidden">
-                                                <div className="flex items-center justify-between">
-                                                    <span className="text-sm font-medium text-zinc-800 dark:text-zinc-200 truncate">{album.name}</span>
+                                    {/* Suggested albums */}
+                                    {suggestedAlbums.length > 0 && (
+                                        <div className="space-y-1 mb-4">
+                                            <p className="text-[10px] font-medium text-amber-500 uppercase tracking-wider mb-2">Pending Review</p>
+                                            {suggestedAlbums.map(album => (
+                                                <div key={album.id} className="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-lg p-3">
                                                     <div className="flex items-center gap-2">
-                                                        {!!album.locked && <span className="text-[10px] bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded font-medium">Locked</span>}
-                                                        {collapsedAlbums.has(album.id) ? <ChevronRight size={16} className="text-zinc-400" /> : <ChevronDown size={16} className="text-zinc-400" />}
+                                                        <Folder size={14} className="text-amber-500" />
+                                                        <span className="text-xs font-medium text-zinc-700 dark:text-zinc-200">{album.name}</span>
+                                                        <span className="text-[10px] text-amber-600 dark:text-amber-500 ml-auto bg-amber-100 dark:bg-amber-500/10 px-1.5 py-0.5 rounded">Pending</span>
                                                     </div>
                                                 </div>
-                                                <div className="flex items-center gap-2 mt-0.5">
-                                                    <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium">{album.items?.length || 0} items</span>
-                                                    {album.type && (
-                                                        <>
-                                                            <span className="text-[10px] text-zinc-300 dark:text-zinc-600">•</span>
-                                                            <span className="text-[10px] text-zinc-500 dark:text-zinc-400">{album.type}</span>
-                                                        </>
-                                                    )}
+                                            ))}
+                                        </div>
+                                    )}
+
+                                    {approvedAlbums.length === 0 && suggestedAlbums.length === 0 && (
+                                        <div className="text-center py-8 text-zinc-500">
+                                            <Image size={24} className="mx-auto mb-2 opacity-50" />
+                                            <p className="text-xs">No albums yet</p>
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                className="mt-2 text-xs border-zinc-700 text-zinc-400 hover:text-zinc-200"
+                                                onClick={() => setShowSuggestDialog(true)}
+                                            >
+                                                <Plus size={12} className="mr-1" />
+                                                Suggest Album
+                                            </Button>
+                                        </div>
+                                    )}
+
+                                    {approvedAlbums.map(album => (
+                                        <div key={album.id} className="border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-800/40 rounded-xl overflow-hidden shadow-sm w-full max-w-full">
+                                            <div
+                                                className="flex items-center gap-3 px-4 py-3 bg-zinc-50/50 dark:bg-zinc-800/40 border-b border-zinc-100 dark:border-zinc-800/50 cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800/60 transition-colors"
+                                                onClick={() => toggleAlbumCollapse(album.id)}
+                                            >
+                                                <div className="p-1 rounded bg-blue-100/50 dark:bg-blue-500/10">
+                                                    <Folder size={16} className="text-blue-500" />
+                                                </div>
+                                                <div className="flex-1 min-w-0 overflow-hidden">
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-sm font-medium text-zinc-800 dark:text-zinc-200 truncate">{album.name}</span>
+                                                        <div className="flex items-center gap-2">
+                                                            {!!album.locked && <span className="text-[10px] bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded font-medium">Locked</span>}
+                                                            {collapsedAlbums.has(album.id) ? <ChevronRight size={16} className="text-zinc-400" /> : <ChevronDown size={16} className="text-zinc-400" />}
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-2 mt-0.5">
+                                                        <span className="text-[10px] text-zinc-500 dark:text-zinc-400 font-medium">{album.items?.length || 0} items</span>
+                                                        {album.type && (
+                                                            <>
+                                                                <span className="text-[10px] text-zinc-300 dark:text-zinc-600">•</span>
+                                                                <span className="text-[10px] text-zinc-500 dark:text-zinc-400">{album.type}</span>
+                                                            </>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
 
-                                        {!collapsedAlbums.has(album.id) && (
-                                            <>
-                                                {album.items && album.items.length > 0 ? (
-                                                    <div className="p-3 overflow-hidden">
-                                                        <div className="grid grid-cols-3 gap-2 w-full">
-                                                            {album.items.map(item => (
-                                                                <div key={item.id} className="relative aspect-square rounded-lg overflow-hidden group cursor-pointer border border-zinc-100 dark:border-zinc-800" onClick={() => onPreview(item.file_path)}>
-                                                                    <img
-                                                                        src={`/api/preview?path=${encodeURIComponent(item.file_path)}`}
-                                                                        alt=""
-                                                                        className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
-                                                                    />
-                                                                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
+                                            {!collapsedAlbums.has(album.id) && (
+                                                <>
+                                                    {album.items && album.items.length > 0 ? (
+                                                        <div className="p-3 overflow-hidden">
+                                                            <div className="grid grid-cols-3 gap-2 w-full">
+                                                                {album.items.map(item => (
+                                                                    <div key={item.id} className="relative aspect-square rounded-lg overflow-hidden group cursor-pointer border border-zinc-100 dark:border-zinc-800" onClick={() => onPreview(item.file_path)}>
+                                                                        <img
+                                                                            src={`/api/preview?path=${encodeURIComponent(item.file_path)}`}
+                                                                            alt=""
+                                                                            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
+                                                                        />
+                                                                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
 
+                                                                        {!album.locked && (
+                                                                            <div
+                                                                                className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 bg-black/40 hover:bg-red-500/80 rounded-full text-white"
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    setItemToDelete(item.id);
+                                                                                    setShowDeleteConfirm(true);
+                                                                                }}
+                                                                            >
+                                                                                <X size={12} />
+                                                                            </div>
+                                                                        )}
+
+                                                                        {item.favorite && (
+                                                                            <div className="absolute top-1 right-1 bg-black/30 backdrop-blur-sm p-1 rounded-full">
+                                                                                <Star size={8} className="text-amber-400 fill-amber-400" />
+                                                                            </div>
+                                                                        )}
+                                                                        {item.cover_role === 'front' && (
+                                                                            <div className="absolute bottom-1 left-1 bg-blue-600/90 text-white text-[8px] px-1.5 py-0.5 rounded font-bold shadow-sm backdrop-blur-sm">
+                                                                                COVER
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                            <div className="mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-800/50 flex flex-wrap gap-2 justify-between items-center">
+                                                                <div className="flex flex-wrap gap-1.5 shrink-0">
                                                                     {!album.locked && (
-                                                                        <div
-                                                                            className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 bg-black/40 hover:bg-red-500/80 rounded-full text-white"
+                                                                        <Button
+                                                                            size="sm"
+                                                                            variant="ghost"
+                                                                            className="h-7 text-xs text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
                                                                             onClick={(e) => {
                                                                                 e.stopPropagation();
-                                                                                setItemToDelete(item.id);
-                                                                                setShowDeleteConfirm(true);
+                                                                                setPasteAlbumId(album.id);
+                                                                                setPasteAlbumName(album.name);
                                                                             }}
                                                                         >
-                                                                            <X size={12} />
-                                                                        </div>
+                                                                            <ClipboardPaste size={14} className="mr-1" />
+                                                                            Paste Names
+                                                                        </Button>
                                                                     )}
-
-                                                                    {item.favorite && (
-                                                                        <div className="absolute top-1 right-1 bg-black/30 backdrop-blur-sm p-1 rounded-full">
-                                                                            <Star size={8} className="text-amber-400 fill-amber-400" />
-                                                                        </div>
-                                                                    )}
-                                                                    {item.cover_role === 'front' && (
-                                                                        <div className="absolute bottom-1 left-1 bg-blue-600/90 text-white text-[8px] px-1.5 py-0.5 rounded font-bold shadow-sm backdrop-blur-sm">
-                                                                            COVER
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                        <div className="mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-800/50 flex flex-wrap gap-2 justify-between items-center">
-                                                            <div className="flex flex-wrap gap-1.5 shrink-0">
-                                                                {!album.locked && (
                                                                     <Button
                                                                         size="sm"
                                                                         variant="ghost"
                                                                         className="h-7 text-xs text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
                                                                         onClick={(e) => {
                                                                             e.stopPropagation();
+                                                                            // Trigger download properly to respect Content-Disposition header
+                                                                            const link = document.createElement('a');
+                                                                            link.href = `/api/albums/${album.id}/download`;
+                                                                            link.download = ''; // Let server set the filename
+                                                                            document.body.appendChild(link);
+                                                                            link.click();
+                                                                            document.body.removeChild(link);
+                                                                        }}
+                                                                    >
+                                                                        <Download size={14} className="mr-1" />
+                                                                        Download
+                                                                    </Button>
+                                                                </div>
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="ghost"
+                                                                    className="h-7 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-500/10"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        setSelectedAlbumId(album.id);
+                                                                        if (selectedPaths.length > 0) {
+                                                                            confirmAddToAlbum();
+                                                                        } else {
+                                                                            alert('Select items from the main list first to add here.');
+                                                                        }
+                                                                    }}
+                                                                >
+                                                                    <Plus size={14} className="mr-1.5" />
+                                                                    Add Selected ({selectedPaths.length})
+                                                                </Button>
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="px-4 py-6 text-center">
+                                                            <p className="text-[10px] text-zinc-400 dark:text-zinc-500 italic">Empty album</p>
+                                                            <div className="flex flex-col gap-1.5 mt-2">
+                                                                {!album.locked && (
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="outline"
+                                                                        className="h-7 text-xs border-dashed border-zinc-300 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:border-zinc-400 dark:hover:border-zinc-600 w-full"
+                                                                        onClick={() => {
                                                                             setPasteAlbumId(album.id);
                                                                             setPasteAlbumName(album.name);
                                                                         }}
                                                                     >
-                                                                        <ClipboardPaste size={14} className="mr-1" />
+                                                                        <ClipboardPaste size={12} className="mr-1" />
                                                                         Paste Names
                                                                     </Button>
                                                                 )}
-                                                                <Button
-                                                                    size="sm"
-                                                                    variant="ghost"
-                                                                    className="h-7 text-xs text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        // Trigger download properly to respect Content-Disposition header
-                                                                        const link = document.createElement('a');
-                                                                        link.href = `/api/albums/${album.id}/download`;
-                                                                        link.download = ''; // Let server set the filename
-                                                                        document.body.appendChild(link);
-                                                                        link.click();
-                                                                        document.body.removeChild(link);
-                                                                    }}
-                                                                >
-                                                                    <Download size={14} className="mr-1" />
-                                                                    Download
-                                                                </Button>
+                                                                {selectedPaths.length > 0 && !album.locked && (
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="outline"
+                                                                        className="h-7 text-xs border-dashed border-zinc-300 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:border-zinc-400 dark:hover:border-zinc-600 w-full"
+                                                                        onClick={() => {
+                                                                            setSelectedAlbumId(album.id);
+                                                                            confirmAddToAlbum();
+                                                                        }}
+                                                                    >
+                                                                        <Plus size={12} className="mr-1" />
+                                                                        Add Selected
+                                                                    </Button>
+                                                                )}
                                                             </div>
-                                                            <Button
-                                                                size="sm"
-                                                                variant="ghost"
-                                                                className="h-7 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-500/10"
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    setSelectedAlbumId(album.id);
-                                                                    if (selectedPaths.length > 0) {
-                                                                        confirmAddToAlbum();
-                                                                    } else {
-                                                                        alert('Select items from the main list first to add here.');
-                                                                    }
-                                                                }}
-                                                            >
-                                                                <Plus size={14} className="mr-1.5" />
-                                                                Add Selected ({selectedPaths.length})
-                                                            </Button>
                                                         </div>
-                                                    </div>
-                                                ) : (
-                                                    <div className="px-4 py-6 text-center">
-                                                        <p className="text-[10px] text-zinc-400 dark:text-zinc-500 italic">Empty album</p>
-                                                        <div className="flex flex-col gap-1.5 mt-2">
-                                                            {!album.locked && (
-                                                                <Button
-                                                                    size="sm"
-                                                                    variant="outline"
-                                                                    className="h-7 text-xs border-dashed border-zinc-300 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:border-zinc-400 dark:hover:border-zinc-600 w-full"
-                                                                    onClick={() => {
-                                                                        setPasteAlbumId(album.id);
-                                                                        setPasteAlbumName(album.name);
-                                                                    }}
-                                                                >
-                                                                    <ClipboardPaste size={12} className="mr-1" />
-                                                                    Paste Names
-                                                                </Button>
-                                                            )}
-                                                            {selectedPaths.length > 0 && !album.locked && (
-                                                                <Button
-                                                                    size="sm"
-                                                                    variant="outline"
-                                                                    className="h-7 text-xs border-dashed border-zinc-300 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:border-zinc-400 dark:hover:border-zinc-600 w-full"
-                                                                    onClick={() => {
-                                                                        setSelectedAlbumId(album.id);
-                                                                        confirmAddToAlbum();
-                                                                    }}
-                                                                >
-                                                                    <Plus size={12} className="mr-1" />
-                                                                    Add Selected
-                                                                </Button>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </>
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
-                        </ScrollArea>
+                                                    )}
+                                                </>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            </ScrollArea>
+                        </div>
+                        {/* close outer flex wrapper */}
                     </div>
                 </>
             )}

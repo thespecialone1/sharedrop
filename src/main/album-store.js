@@ -228,7 +228,7 @@ class AlbumStore {
         const sets = [];
         const values = [];
 
-        for (const key of updates) {
+        for (const key of Object.keys(updates)) {
             const dbKey = key === 'coverRole' ? 'cover_role' : key;
             if (allowed.includes(dbKey)) {
                 if (dbKey === 'favorite') {

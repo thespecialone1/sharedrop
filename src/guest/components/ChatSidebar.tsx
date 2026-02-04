@@ -179,18 +179,19 @@ const ChatSidebar = ({
     return (
         <>
             {/* Backdrop */}
-            {isOpen && <div className="fixed inset-0 bg-black/40 z-40" onClick={onToggle} />}
+            {isOpen && <div className="fixed inset-0 bg-black/25 dark:bg-black/45 z-40" onClick={onToggle} />}
 
             {/* Chat Panel */}
             <div className={`
-                fixed inset-y-0 left-0 z-[60] transition-transform duration-300 ease-out
-                bg-bg shadow-2xl border-r border-border-custom
+                fixed top-4 bottom-4 left-4 z-[60] transition-transform duration-300 ease-out
+                bg-white/94 dark:bg-zinc-900/94 backdrop-blur-2xl shadow-[0_18px_60px_-24px_rgba(0,0,0,0.35)]
+                border border-zinc-200/80 dark:border-white/10 rounded-3xl overflow-hidden
                 w-[85vw] sm:w-[25vw] sm:min-w-[320px] sm:max-w-[400px]
-                ${isOpen ? 'translate-x-0 pointer-events-auto' : '-translate-x-full pointer-events-none'}
+                ${isOpen ? 'translate-x-0 pointer-events-auto' : '-translate-x-[110%] pointer-events-none'}
             `}>
                 <div className="flex flex-col h-full">
                     {/* Header */}
-                    <div className="flex-shrink-0 px-4 py-3 border-b border-border-custom bg-surface-2 flex flex-col gap-3">
+                    <div className="flex-shrink-0 px-4 py-3 border-b border-zinc-100/70 dark:border-white/10 bg-zinc-50/70 dark:bg-white/[0.03] flex flex-col gap-3">
                         {/* Top Row: Title & Close */}
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
@@ -271,7 +272,7 @@ const ChatSidebar = ({
 
                     {/* Participant List (Voice) */}
                     {voiceRoom?.isInVoice && (
-                        <div className="flex-shrink-0 px-3 py-2 border-b border-border-custom bg-surface-2/50">
+                        <div className="flex-shrink-0 px-3 py-2 border-b border-zinc-100/70 dark:border-white/10 bg-zinc-50/60 dark:bg-white/[0.02]">
                             <div className="flex items-center gap-1.5 mb-1.5">
                                 <Users size={12} className="text-green-500" />
                                 <span className="text-[10px] font-semibold text-slate-500 uppercase">Voice Call</span>
@@ -287,7 +288,7 @@ const ChatSidebar = ({
                     )}
 
                     {/* Online users */}
-                    <div className="flex-shrink-0 px-3 py-2 border-b border-border-custom bg-bg">
+                    <div className="flex-shrink-0 px-3 py-2 border-b border-zinc-100/70 dark:border-white/10 bg-white/60 dark:bg-white/[0.02]">
                         <div className="flex items-center gap-1.5 mb-1.5">
                             <Users size={12} className="text-slate-400" />
                             <span className="text-[10px] font-semibold text-slate-500 uppercase">Online · {users.length}</span>

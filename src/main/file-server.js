@@ -16,6 +16,7 @@ import { EventEmitter } from 'events';
 
 import ffmpegPath from 'ffmpeg-static';
 import { exec } from 'child_process';
+import { validatePath as validatePathUtil } from './utils/security.js';
 
 const EBOOK_CONVERT_BIN = process.env.CALIBRE_BIN_PATH || 'ebook-convert';
 let hasEbookConvert = false;
@@ -176,10 +177,12 @@ class FileServer extends EventEmitter {
         this.server = http.createServer(this.app);
         this.io = new Server(this.server);
         this.activeUsers = new Map();
+        this.activeUsers = new Map();
         // Use passed stores or null (some features may be limited)
         this.chatStore = stores.chatStore || null;
         this.sessionStore = stores.sessionStore || null;
         this.albumStore = stores.albumStore || null;
+        this.folderPath = sharedPath; // Set folderPath for album recovery checks
 
         // Track connections for proper cleanup
         this.activeSockets = new Set();
@@ -206,6 +209,14 @@ class FileServer extends EventEmitter {
         this.setupSockets();
     }
 
+    /**
+     * Security: Validate and resolve a relative path against the shared root.
+     * Returns the absolute path if valid, or null if invalid/traversal attempt.
+     */
+    validatePath(relPath) {
+        return validatePathUtil(relPath, this.sharedPath);
+    }
+
     emitMembersUpdate(roomId = this.roomId) {
         const members = Array.from(this.activeUsers.values())
             .filter(u => u.roomId === roomId)
@@ -228,7 +239,7 @@ class FileServer extends EventEmitter {
         const user = this.activeUsers.get(socketId);
         if (!user) return false;
 
-        const socket = Array.from(this.activeSockets).find(s => s.id === socketId);
+        const socket = this.io.sockets.sockets.get(socketId);
         if (socket) {
             socket.emit('session:kicked', { reason, scope: 'session' });
             socket.disconnect(true);
@@ -246,15 +257,13 @@ class FileServer extends EventEmitter {
         this.sessionBans.add(canonicalUsername);
 
         // Find and kick all active sockets for this user
-        for (const [socketId, user] of this.activeUsers.entries()) {
-            if (user.canonicalUsername === canonicalUsername) {
-                const socket = Array.from(this.activeSockets).find(s => s.id === socketId);
-                if (socket) {
-                    socket.emit('session:kicked', { reason, scope: 'session' });
-                    socket.disconnect(true);
-                }
-                this.activeUsers.delete(socketId);
+        if (user.canonicalUsername === canonicalUsername) {
+            const socket = this.io.sockets.sockets.get(socketId);
+            if (socket) {
+                socket.emit('session:kicked', { reason, scope: 'session' });
+                socket.disconnect(true);
             }
+            this.activeUsers.delete(socketId);
         }
         this.emitMembersUpdate();
         return true;
@@ -313,11 +322,37 @@ class FileServer extends EventEmitter {
     }
 
     setupRoutes() {
+        // Simple memory-based rate limiter for auth
+        const authAttempts = new Map(); // ip -> { count, lastAttempt }
+
         this.app.post('/api/auth', (req, res) => {
+            const ip = req.ip;
+            const now = Date.now();
+            const record = authAttempts.get(ip) || { count: 0, lastAttempt: 0 };
+
+            // Reset count if > 5 minutes passed
+            if (now - record.lastAttempt > 5 * 60 * 1000) {
+                record.count = 0;
+            }
+
+            // Block if > 10 attempts in 5 minutes
+            if (record.count >= 10) {
+                record.lastAttempt = now;
+                authAttempts.set(ip, record);
+                return res.status(429).json({ error: 'Too many attempts. Try again later.' });
+            }
+
             if (req.body.password === this.password) {
+                // Reset on success
+                authAttempts.delete(ip);
                 req.session.authenticated = true;
                 res.json({ success: true });
-            } else res.status(401).json({ success: false });
+            } else {
+                record.count++;
+                record.lastAttempt = now;
+                authAttempts.set(ip, record);
+                res.status(401).json({ success: false });
+            }
         });
 
         const requireAuth = (req, res, next) => {
@@ -373,9 +408,9 @@ class FileServer extends EventEmitter {
             const relPath = req.query.path || '';
             const search = (req.query.search || '').toLowerCase();
             const sort = req.query.sort || 'name_asc';
-            const fullPath = path.resolve(this.sharedPath, relPath);
 
-            if (!fullPath.startsWith(path.resolve(this.sharedPath))) return res.status(403).send('Forbidden');
+            const fullPath = this.validatePath(relPath);
+            if (!fullPath) return res.status(403).send('Forbidden: Invalid path');
 
             try {
                 let items = fs.readdirSync(fullPath, { withFileTypes: true });
@@ -437,7 +472,9 @@ class FileServer extends EventEmitter {
 
         // Preview endpoint - generates thumbnails
         this.app.get('/api/preview', requireAuth, async (req, res) => {
-            const fullPath = path.resolve(this.sharedPath, req.query.path || '');
+            const fullPath = this.validatePath(req.query.path || '');
+            if (!fullPath) return res.status(403).json({ error: 'Invalid path' });
+
             const filename = path.basename(fullPath);
             const ext = path.extname(fullPath).toLowerCase();
 
@@ -477,16 +514,6 @@ class FileServer extends EventEmitter {
                     return res.sendFile(cachePath);
                 }
 
-                // Check if conversion is already in progress (simple lock via temp file existence or memory?)
-                // For simplicity, we'll just try to convert. Concurrent requests might be wasteful but safe enough for V1.
-                // Better: return 202 Accepted or stream 
-                // Client expects a URL. If we return 202, client needs to poll. 
-                // The PLAN says: "Conversion should be async: show spinner and poll conversion status"
-                // For this endpoint, if we want to blocking-wait or return immediately?
-                // Let's implement a "check or start" logic.
-
-                // If not exist, start conversion and return 202
-                // We'll use a .lock file to signal in-progress
                 const lockFile = cachePath + '.lock';
                 if (fs.existsSync(lockFile)) {
                     // Check if lock is stale (> 5 mins)
@@ -506,9 +533,6 @@ class FileServer extends EventEmitter {
                     try { fs.unlinkSync(lockFile); } catch { }
                     if (err) {
                         console.error('MOBI conversion failed:', stderr);
-                        // We can't reply to the original request if we already returned 202? 
-                        // Actually we haven't returned yet if we are waiting? 
-                        // If we want async polling, we MUST return 202 now.
                     } else {
                         console.log('MOBI conversion success:', cachePath);
                     }
@@ -520,15 +544,12 @@ class FileServer extends EventEmitter {
             // TEXT - Serve with range support / plain text
             if (ext === '.txt' || format === 'text') {
                 const stat = fs.statSync(fullPath);
-                // Cap size for safety if no range? Client should handle ranges.
-                // But for simple "preview", let's just stream it.
                 res.set('Content-Type', 'text/plain; charset=utf-8');
                 return fs.createReadStream(fullPath).pipe(res);
             }
 
             // JSON - Serve raw or pretty
             if (ext === '.json' || format === 'json') {
-                // Determine size
                 const stat = fs.statSync(fullPath);
                 const PREVIEW_MAX_BYTES = process.env.PREVIEW_MAX_BYTES || 5 * 1024 * 1024; // 5MB limit for full parse
 
@@ -543,9 +564,8 @@ class FileServer extends EventEmitter {
                     try {
                         const content = fs.readFileSync(fullPath, 'utf8');
                         const json = JSON.parse(content);
-                        return res.json(json); // Express auto-prettifies based on env or we can force it
+                        return res.json(json);
                     } catch (e) {
-                        // Fallback to raw if invalid json
                         res.set('Content-Type', 'application/json');
                         return fs.createReadStream(fullPath).pipe(res);
                     }
@@ -555,8 +575,6 @@ class FileServer extends EventEmitter {
                 }
             }
 
-            // --- End Enhanced Preview ---
-
             try {
                 const cacheKey = getCacheKey(fullPath);
                 const cached = getCachedPreview(cacheKey);
@@ -565,7 +583,6 @@ class FileServer extends EventEmitter {
                 // Standard images that Sharp handles well
                 if (['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp'].includes(ext)) {
                     try {
-                        // .rotate() without args auto-applies EXIF orientation
                         const buf = await sharp(fullPath).rotate().resize(400, 400, { fit: 'cover' }).jpeg({ quality: 75 }).toBuffer();
                         saveToCacheAsync(cacheKey, buf);
                         return res.set('Content-Type', 'image/jpeg').send(buf);
@@ -575,7 +592,7 @@ class FileServer extends EventEmitter {
                     }
                 }
 
-                // HEIC/DNG/RAW - use FFmpeg
+                // HEIC/DNG/RAW
                 if (['.heic', '.heif', '.dng', '.raw', '.arw', '.cr2', '.nef'].includes(ext)) {
                     return this.ffmpegPreview(fullPath, cacheKey, res);
                 }
@@ -592,13 +609,14 @@ class FileServer extends EventEmitter {
             }
         });
 
-        // Stream endpoint - serves full-size media with range support
+        // Stream endpoint
         this.app.get('/api/stream', requireAuth, async (req, res) => {
-            const fullPath = path.resolve(this.sharedPath, req.query.path || '');
+            const fullPath = this.validatePath(req.query.path || '');
+            if (!fullPath) return res.status(403).json({ error: 'Invalid path' });
+
             const filename = path.basename(fullPath);
             const ext = path.extname(fullPath).toLowerCase();
 
-            // Block hidden/system files
             if (isHiddenSystemFile(filename)) {
                 return res.status(403).json({ error: 'System metadata file' });
             }
@@ -609,7 +627,6 @@ class FileServer extends EventEmitter {
                 const stat = fs.statSync(fullPath);
                 const fileSize = stat.size;
 
-                // Native browser-supported formats with range request support
                 if (['.mp4', '.webm', '.mov', '.m4v', '.mp3', '.wav', '.ogg', '.flac', '.m4a', '.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp'].includes(ext)) {
                     const range = req.headers.range;
                     if (range) {
@@ -617,7 +634,6 @@ class FileServer extends EventEmitter {
                         const start = parseInt(parts[0], 10);
                         const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
                         const chunksize = (end - start) + 1;
-
                         const mimeTypes = {
                             '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime', '.m4v': 'video/x-m4v',
                             '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.flac': 'audio/flac', '.m4a': 'audio/mp4',
@@ -674,10 +690,10 @@ class FileServer extends EventEmitter {
         });
 
         this.app.get('/api/file', requireAuth, (req, res) => {
-            const fullPath = path.resolve(this.sharedPath, req.query.path || '');
-            const filename = path.basename(fullPath);
+            const fullPath = this.validatePath(req.query.path || '');
+            if (!fullPath) return res.status(403).json({ error: 'Invalid path' });
 
-            // Block hidden/system files
+            const filename = path.basename(fullPath);
             if (isHiddenSystemFile(filename)) {
                 return res.status(403).json({ error: 'System metadata file' });
             }
@@ -686,12 +702,17 @@ class FileServer extends EventEmitter {
             else res.status(404).send('Not Found');
         });
 
-        this.app.post('/api/download-zip', requireAuth, (req, res) => generateZip(this.sharedPath, req.body.paths, res));
+        this.app.post('/api/download-zip', requireAuth, (req, res) => {
+            const paths = req.body.paths || [];
+            for (const p of paths) {
+                if (!this.validatePath(p)) return res.status(403).json({ error: 'Invalid path' });
+            }
+            generateZip(this.sharedPath, paths, res);
+        });
 
         // RTC configuration endpoint for voice rooms
         this.app.get('/api/rtc-config', requireAuth, (req, res) => {
             const iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
-            // Add TURN server if configured
             if (process.env.TURN_URL) {
                 iceServers.push({
                     urls: process.env.TURN_URL,
@@ -739,13 +760,9 @@ class FileServer extends EventEmitter {
             if (!this.albumStore) return res.status(503).json({ error: 'Unavailable' });
 
             const { name, type, isOwner, createdBy } = req.body;
-            console.log('[FileServer] POST /api/albums:', { name, type, isOwner, createdBy, roomId: this.roomId });
-
-            // Use provided createdBy if owner, otherwise fallback to session or Guest
             const username = (isOwner && createdBy) ? createdBy : (req.session.username || 'Guest');
 
             if (!isOwner) {
-                console.warn('[FileServer] Album creation denied: Not owner');
                 return res.status(403).json({ error: 'Only owner can create albums' });
             }
 
@@ -753,11 +770,8 @@ class FileServer extends EventEmitter {
                 const album = this.albumStore.createAlbum(this.roomId, name, type, username, 'approved', this.folderPath);
                 this.io.to(this.roomId).emit('album:sync', this.getAlbumsSyncData());
                 this.emit('albums-updated');
-                console.log('[FileServer] Album created, syncing...');
-
                 res.json({ success: true, album });
             } catch (e) {
-                console.error('[FileServer] Album creation error:', e);
                 res.status(500).json({ error: e.message });
             }
         });
@@ -810,14 +824,8 @@ class FileServer extends EventEmitter {
             const username = req.session.username || 'Guest';
             const album = this.albumStore.getAlbum(req.params.id);
 
-            if (!album) {
-                return res.status(404).json({ error: 'Album not found' });
-            }
-
-            if (album.locked) {
-                return res.status(403).json({ error: 'Album is locked' });
-            }
-
+            if (!album) return res.status(404).json({ error: 'Album not found' });
+            if (album.locked) return res.status(403).json({ error: 'Album is locked' });
             if (album.status === 'suggested' && album.created_by !== username) {
                 return res.status(403).json({ error: 'Cannot add to unapproved album' });
             }
@@ -833,17 +841,12 @@ class FileServer extends EventEmitter {
             if (!this.albumStore) return res.status(503).json({ error: 'Unavailable' });
 
             const item = this.albumStore.getItem(req.params.itemId);
-            if (!item) {
-                return res.status(404).json({ error: 'Item not found' });
-            }
+            if (!item) return res.status(404).json({ error: 'Item not found' });
 
             const album = this.albumStore.getAlbum(item.album_id);
             const username = req.session.username || 'Guest';
 
-            if (album.locked) {
-                return res.status(403).json({ error: 'Album is locked' });
-            }
-
+            if (album.locked) return res.status(403).json({ error: 'Album is locked' });
             if (album.created_by !== username && item.added_by !== username) {
                 return res.status(403).json({ error: 'Cannot remove this item' });
             }
@@ -859,17 +862,12 @@ class FileServer extends EventEmitter {
             if (!this.albumStore) return res.status(503).json({ error: 'Unavailable' });
 
             const item = this.albumStore.getItem(req.params.itemId);
-            if (!item) {
-                return res.status(404).json({ error: 'Item not found' });
-            }
+            if (!item) return res.status(404).json({ error: 'Item not found' });
 
             const album = this.albumStore.getAlbum(item.album_id);
             const username = req.session.username || 'Guest';
 
-            if (album.locked) {
-                return res.status(403).json({ error: 'Album is locked' });
-            }
-
+            if (album.locked) return res.status(403).json({ error: 'Album is locked' });
             if (album.status === 'suggested' && album.created_by !== username) {
                 return res.status(403).json({ error: 'Cannot edit unapproved album' });
             }
@@ -893,47 +891,33 @@ class FileServer extends EventEmitter {
             res.json(exportData);
         });
 
-        // Download album as ZIP
         this.app.get('/api/albums/:id/download', requireAuth, requireAlbumStore, async (req, res) => {
             if (!this.albumStore) return res.status(503).json({ error: 'Unavailable' });
 
             const album = this.albumStore.getAlbum(req.params.id);
-            if (!album) {
-                return res.status(404).json({ error: 'Album not found' });
-            }
+            if (!album) return res.status(404).json({ error: 'Album not found' });
 
             const items = this.albumStore.getAlbumItems(req.params.id);
-            if (!items || items.length === 0) {
-                return res.status(400).json({ error: 'Album is empty' });
-            }
+            if (!items || items.length === 0) return res.status(400).json({ error: 'Album is empty' });
 
-            // Extract file paths, marking missing files
             const validPaths = [];
             const missingPaths = [];
 
             for (const item of items) {
                 const fullPath = path.join(this.sharedPath, item.file_path);
-                if (fs.existsSync(fullPath)) {
-                    validPaths.push(item.file_path);
-                } else {
-                    missingPaths.push(item.file_path);
-                }
+                if (fs.existsSync(fullPath)) validPaths.push(item.file_path);
+                else missingPaths.push(item.file_path);
             }
 
-            if (validPaths.length === 0) {
-                return res.status(400).json({ error: 'No valid files in album', missingPaths });
-            }
+            if (validPaths.length === 0) return res.status(400).json({ error: 'No valid files in album', missingPaths });
 
-            // Use existing generateZip with album name
             res.attachment(`${album.name.replace(/[^a-zA-Z0-9-_]/g, '_')}.zip`);
             await generateZip(this.sharedPath, validPaths, res);
         });
 
         this.app.get('/api/albums/recovery', requireOwner, (req, res) => {
             const folderPath = req.query.folderPath;
-            if (!folderPath) {
-                return res.status(400).json({ error: 'folderPath required' });
-            }
+            if (!folderPath) return res.status(400).json({ error: 'folderPath required' });
             const existing = this.albumStore ? this.albumStore.findByFolderPath(folderPath) : null;
             res.json({ hasRecovery: !!existing, data: existing });
         });
